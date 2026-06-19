@@ -1,0 +1,294 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="DermaScan AI - evaluación cosmética facial orientativa desde tu navegador."
+    />
+    <title>DermaScan AI | Escáner cosmético facial</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@500;600;700;800&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="noise" aria-hidden="true"></div>
+
+    <header class="topbar">
+      <a class="brand" href="#inicio" aria-label="DermaScan AI, inicio">
+        <span class="brand-mark">
+          <span></span><span></span><span></span><span></span>
+        </span>
+        <span>DERMASCAN <b>AI</b></span>
+      </a>
+      <nav aria-label="Navegación principal">
+        <a href="#como-funciona">Cómo funciona</a>
+        <a href="#privacidad">Privacidad</a>
+      </nav>
+      <button class="button button-small button-dark" data-start-scan>
+        Iniciar escaneo
+      </button>
+    </header>
+
+    <main>
+      <section class="hero" id="inicio">
+        <div class="hero-copy">
+          <div class="eyebrow"><span></span> Inteligencia cosmética para tu piel</div>
+          <h1>Conoce tu piel.<br /><em>Cuídala mejor.</em></h1>
+          <p>
+            Una evaluación facial orientativa que estima textura, hidratación,
+            poros, imperfecciones y signos visibles de edad en menos de un minuto.
+          </p>
+          <div class="hero-actions">
+            <button class="button button-primary" data-start-scan>
+              Analizar mi piel <span>↗</span>
+            </button>
+            <span class="microcopy">Sin registro · Análisis local</span>
+          </div>
+        </div>
+
+        <div class="hero-visual" aria-label="Vista conceptual de análisis facial">
+          <div class="orb orb-one"></div>
+          <div class="orb orb-two"></div>
+          <div class="portrait-card">
+            <div class="portrait-glow"></div>
+            <div class="face-art">
+              <div class="hair"></div>
+              <div class="ear left"></div><div class="ear right"></div>
+              <div class="face">
+                <div class="brow left"></div><div class="brow right"></div>
+                <div class="eye left"></div><div class="eye right"></div>
+                <div class="nose"></div><div class="mouth"></div>
+              </div>
+              <div class="neck"></div>
+              <div class="shirt"></div>
+            </div>
+            <div class="scan-ring">
+              <i class="corner tl"></i><i class="corner tr"></i>
+              <i class="corner bl"></i><i class="corner br"></i>
+              <div class="scan-line"></div>
+              <span class="node n1"></span><span class="node n2"></span>
+              <span class="node n3"></span><span class="node n4"></span>
+            </div>
+            <div class="metric-chip chip-score">
+              <span>SKIN SCORE</span><b>86</b><small>/100</small>
+            </div>
+            <div class="metric-chip chip-texture">
+              <span class="dot"></span><div><small>TEXTURA</small><b>Uniforme</b></div>
+            </div>
+            <div class="metric-chip chip-hydration">
+              <span class="drop">◒</span><div><small>HIDRATACIÓN</small><b>72%</b></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="trust-strip" aria-label="Características">
+        <div><b>100%</b><span>Procesamiento local</span></div>
+        <div><b>&lt; 60s</b><span>Resultados rápidos</span></div>
+        <div><b>8</b><span>Métricas cosméticas</span></div>
+        <div><b>0</b><span>Fotos almacenadas</span></div>
+      </section>
+
+      <section class="how" id="como-funciona">
+        <div class="section-heading">
+          <span class="eyebrow"><span></span> Simple y privado</span>
+          <h2>Una lectura visual,<br />en tres pasos.</h2>
+        </div>
+        <div class="steps">
+          <article>
+            <span class="step-number">01</span>
+            <div class="step-icon">◎</div>
+            <h3>Captura</h3>
+            <p>Ubica tu rostro con luz frontal y sin filtros, maquillaje intenso ni gafas.</p>
+          </article>
+          <article>
+            <span class="step-number">02</span>
+            <div class="step-icon">⌁</div>
+            <h3>Análisis</h3>
+            <p>Evaluamos patrones visuales de color, contraste y microtextura por zonas.</p>
+          </article>
+          <article>
+            <span class="step-number">03</span>
+            <div class="step-icon">✦</div>
+            <h3>Tu rutina</h3>
+            <p>Recibe prioridades cosméticas y una rutina inicial fácil de seguir.</p>
+          </article>
+        </div>
+      </section>
+
+      <section class="privacy-section" id="privacidad">
+        <div>
+          <span class="eyebrow light"><span></span> Privacidad por diseño</span>
+          <h2>Tu fotografía<br />no se almacena.</h2>
+        </div>
+        <p>
+          El MVP envía la captura únicamente al servicio local de análisis en este
+          dispositivo. La fotografía se procesa en memoria, no se guarda y se descarta
+          inmediatamente después de generar el resultado.
+        </p>
+      </section>
+    </main>
+
+    <div class="scanner-shell" id="scanner" aria-hidden="true">
+      <div class="scanner-modal" role="dialog" aria-modal="true" aria-labelledby="scanner-title">
+        <button class="icon-button close-button" id="close-scanner" aria-label="Cerrar">×</button>
+
+        <section class="scan-stage active" id="stage-capture">
+          <div class="scan-header">
+            <span class="eyebrow"><span></span> Escaneo guiado</span>
+            <h2 id="scanner-title">Prepara tu rostro</h2>
+            <p>Busca luz frontal uniforme y mantén una expresión neutra.</p>
+          </div>
+
+          <div class="capture-layout">
+            <div class="camera-frame" id="camera-frame">
+              <video id="camera" autoplay playsinline muted></video>
+              <img id="photo-preview" alt="Fotografía seleccionada para el análisis" />
+              <canvas id="capture-canvas"></canvas>
+              <div class="camera-placeholder" id="camera-placeholder">
+                <div class="placeholder-face">◎</div>
+                <b>Activa la cámara o sube una foto</b>
+                <span>La imagen se procesa solo en este dispositivo.</span>
+              </div>
+              <div class="face-guide" aria-hidden="true">
+                <span class="guide-top"></span><span class="guide-bottom"></span>
+              </div>
+              <div class="camera-status" id="camera-status">Esperando imagen</div>
+            </div>
+
+            <aside class="quality-panel">
+              <h3>Calidad de captura</h3>
+              <div class="quality-item" data-quality="light">
+                <span class="quality-icon">☀</span><div><b>Iluminación</b><small>Busca luz frontal</small></div><i>—</i>
+              </div>
+              <div class="quality-item" data-quality="sharpness">
+                <span class="quality-icon">⌁</span><div><b>Nitidez</b><small>Mantén el dispositivo quieto</small></div><i>—</i>
+              </div>
+              <div class="quality-item" data-quality="contrast">
+                <span class="quality-icon">◐</span><div><b>Contraste</b><small>Evita sombras fuertes</small></div><i>—</i>
+              </div>
+              <div class="capture-tips">
+                <b>Para un resultado más consistente</b>
+                <span>• Rostro limpio y sin filtros</span>
+                <span>• Retira gafas y despeja el cabello</span>
+                <span>• Mira de frente a la cámara</span>
+              </div>
+            </aside>
+          </div>
+
+          <div class="capture-actions">
+            <button class="button button-dark" id="enable-camera">Usar cámara</button>
+            <label class="button button-outline" for="photo-upload">Subir fotografía</label>
+            <input id="photo-upload" type="file" accept="image/jpeg,image/png,image/webp" />
+            <button class="button button-ghost" id="use-demo">Probar demo</button>
+            <label class="history-consent">
+              <input id="save-history" type="checkbox" />
+              <span>Guardar solo mis resultados en el historial</span>
+            </label>
+            <button class="button button-primary analyze-button" id="analyze-photo" disabled>
+              Analizar piel <span>↗</span>
+            </button>
+          </div>
+        </section>
+
+        <section class="scan-stage" id="stage-processing">
+          <div class="processing-wrap">
+            <div class="processing-visual">
+              <img id="processing-image" alt="" />
+              <div class="processing-grid"></div>
+              <div class="processing-beam"></div>
+            </div>
+            <span class="eyebrow"><span></span> Motor DermaScan</span>
+            <h2>Analizando tu piel...</h2>
+            <p id="processing-label">Validando la calidad de imagen</p>
+            <div class="progress-track"><span id="progress-bar"></span></div>
+            <strong id="progress-value">0%</strong>
+          </div>
+        </section>
+
+        <section class="scan-stage" id="stage-results">
+          <div class="results-top">
+            <div>
+              <span class="eyebrow"><span></span> Tu lectura cosmética</span>
+              <h2>Así se ve tu piel hoy.</h2>
+              <p>Resultados orientativos basados en señales visibles de la fotografía.</p>
+            </div>
+            <button class="button button-outline" id="restart-scan">Nuevo análisis</button>
+          </div>
+
+          <div class="results-grid">
+            <article class="score-card">
+              <div class="score-ring" id="score-ring">
+                <div><b id="overall-score">—</b><span>/100</span></div>
+              </div>
+              <div>
+                <span>SKIN HEALTH SCORE</span>
+                <h3 id="score-label">Evaluación</h3>
+                <p id="score-summary"></p>
+              </div>
+            </article>
+
+            <article class="skin-type-card">
+              <span>TIPO DE PIEL ESTIMADO</span>
+              <h3 id="skin-type">—</h3>
+              <p id="skin-type-copy"></p>
+              <div class="confidence">
+                <span>Confianza fotográfica</span><b id="confidence-value">—</b>
+              </div>
+            </article>
+          </div>
+
+          <div class="metrics-section">
+            <div class="subheading">
+              <div><span>ANÁLISIS DETALLADO</span><h3>8 indicadores visibles</h3></div>
+              <small>Mayor puntuación = mejor estado visual</small>
+            </div>
+            <div class="metric-grid" id="metric-grid"></div>
+          </div>
+
+          <div class="insights-grid">
+            <article class="map-card">
+              <div class="subheading"><div><span>MAPA FACIAL</span><h3>Zonas de atención</h3></div></div>
+              <div class="face-map">
+                <img id="result-image" alt="Captura analizada" />
+                <canvas id="map-canvas"></canvas>
+              </div>
+              <div class="map-legend" id="map-legend"></div>
+            </article>
+            <article class="routine-card">
+              <div class="subheading"><div><span>RUTINA INICIAL</span><h3>Prioridades sugeridas</h3></div></div>
+              <div id="recommendations"></div>
+            </article>
+          </div>
+
+          <div class="medical-note">
+            <span>i</span>
+            <p>
+              <b>Evaluación cosmética experimental.</b> No detecta enfermedades ni sustituye
+              una consulta dermatológica. Si observas lesiones nuevas, cambiantes, dolorosas
+              o persistentes, consulta con un profesional de salud.
+              <small id="analysis-warnings"></small>
+            </p>
+          </div>
+        </section>
+      </div>
+    </div>
+
+    <footer>
+      <a class="brand" href="#inicio">
+        <span class="brand-mark"><span></span><span></span><span></span><span></span></span>
+        <span>DERMASCAN <b>AI</b></span>
+      </a>
+      <p>Beauty intelligence, diseñada para Latinoamérica.</p>
+      <small>MVP experimental · 2026</small>
+    </footer>
+
+    <script src="app.js"></script>
+  </body>
+</html>
