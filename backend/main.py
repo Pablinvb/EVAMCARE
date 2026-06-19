@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 import threading
 import time
+from math import asin, cos, radians, sin, sqrt
 from collections import defaultdict, deque
 from contextlib import asynccontextmanager
 from typing import Annotated
@@ -14,6 +15,7 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
+from pydantic import BaseModel, Field
 
 from .analyzer import SkinAnalyzer
 from .config import (
@@ -27,20 +29,44 @@ from .config import (
     PROJECT_ROOT,
     RATE_LIMIT_REQUESTS,
     RATE_LIMIT_WINDOW_SECONDS,
+    PARTNER_API_KEY,
+    REFERRAL_TOKEN_TTL_SECONDS,
 )
 from .clinical_status import get_clinical_status
 from .database import (
     delete_analysis,
+    delete_lead,
     delete_session_history,
+    get_active_clinics,
+    get_clinic,
     initialize_database,
+    list_partner_leads,
     list_analyses,
     save_analysis,
+    save_lead,
 )
+from .referrals import create_referral_token, verify_referral_token
 
 SESSION_PATTERN = re.compile(r"^[a-zA-Z0-9_-]{16,80}$")
 rate_buckets: dict[str, deque[float]] = defaultdict(deque)
 rate_lock = threading.Lock()
 analyzer = SkinAnalyzer()
+
+
+class LeadRequest(BaseModel):
+    clinicId: str = Field(min_length=3, max_length=80)
+    referralToken: str = Field(min_length=20, max_length=5000)
+    fullName: str = Field(min_length=2, max_length=120)
+    phone: str = Field(min_length=7, max_length=30)
+    email: str | None = Field(default=None, max_length=254)
+    preferredChannel: str = Field(pattern="^(phone|whatsapp|email)$")
+    preferredTime: str | None = Field(default=None, max_length=120)
+    latitude: float = Field(ge=-90, le=90)
+    longitude: float = Field(ge=-180, le=180)
+    distanceKm: float = Field(ge=0, le=500)
+    consentContact: bool
+    consentLocation: bool
+    consentResults: bool
 
 
 @asynccontextmanager
@@ -168,6 +194,7 @@ async def analyze(
     enforce_rate_limit(session_id)
     decoded = await decode_upload(image)
     result = await run_in_threadpool(analyzer.analyze, decoded)
+    referral_token = create_referral_token(result)
     analysis_id = None
     created_at = None
     if save_history:
@@ -178,12 +205,160 @@ async def analyze(
         "createdAt": created_at,
         "stored": bool(save_history),
         "imageStored": False,
+        "referralToken": referral_token,
+        "referralTokenExpiresIn": REFERRAL_TOKEN_TTL_SECONDS,
         "result": result,
         "disclaimer": (
             "Evaluación cosmética experimental. No detecta enfermedades ni "
             "sustituye una consulta dermatológica."
         ),
     }
+
+
+def distance_km(
+    latitude_a: float,
+    longitude_a: float,
+    latitude_b: float,
+    longitude_b: float,
+) -> float:
+    earth_radius = 6371.0088
+    lat_a, lat_b = radians(latitude_a), radians(latitude_b)
+    delta_lat = lat_b - lat_a
+    delta_lon = radians(longitude_b - longitude_a)
+    value = (
+        sin(delta_lat / 2) ** 2
+        + cos(lat_a) * cos(lat_b) * sin(delta_lon / 2) ** 2
+    )
+    return earth_radius * 2 * asin(sqrt(value))
+
+
+@app.get("/api/v1/clinics")
+def clinics(
+    latitude: Annotated[float, Query(ge=-90, le=90)],
+    longitude: Annotated[float, Query(ge=-180, le=180)],
+    radius_km: Annotated[float, Query(ge=1, le=200)] = 50,
+    limit: Annotated[int, Query(ge=1, le=20)] = 10,
+) -> dict:
+    matches = []
+    for clinic in get_active_clinics():
+        distance = distance_km(
+            latitude, longitude, clinic["latitude"], clinic["longitude"]
+        )
+        if distance <= radius_km:
+            public_clinic = {
+                key: value
+                for key, value in clinic.items()
+                if key not in {"latitude", "longitude"}
+            }
+            public_clinic["distanceKm"] = round(distance, 1)
+            matches.append(public_clinic)
+    matches.sort(key=lambda item: item["distanceKm"])
+    return {
+        "ok": True,
+        "items": matches[:limit],
+        "locationStored": False,
+        "notice": (
+            "Los centros marcados como demo son datos demostrativos y no representan "
+            "alianzas comerciales verificadas."
+        ),
+    }
+
+
+@app.post("/api/v1/leads", status_code=201)
+def create_lead(
+    request: LeadRequest,
+    x_derma_session: Annotated[str | None, Header()] = None,
+) -> dict:
+    session_id = validate_session(x_derma_session)
+    enforce_rate_limit(session_id)
+    if not (
+        request.consentContact
+        and request.consentLocation
+        and request.consentResults
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="Se requieren los tres consentimientos para enviar la solicitud.",
+        )
+    clinic = get_clinic(request.clinicId)
+    if not clinic:
+        raise HTTPException(status_code=404, detail="Centro no encontrado.")
+    calculated_distance = distance_km(
+        request.latitude,
+        request.longitude,
+        clinic["latitude"],
+        clinic["longitude"],
+    )
+    if abs(calculated_distance - request.distanceKm) > 3:
+        raise HTTPException(
+            status_code=400,
+            detail="La distancia del centro no coincide con la ubicación enviada.",
+        )
+    try:
+        summary = verify_referral_token(request.referralToken)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if request.email and not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", request.email):
+        raise HTTPException(status_code=400, detail="Correo electrónico inválido.")
+    rounded_latitude = round(request.latitude, 3)
+    rounded_longitude = round(request.longitude, 3)
+    consent_text = (
+        "El usuario autorizó compartir contacto, ubicación aproximada y resumen "
+        "del análisis con el centro seleccionado. La fotografía no fue compartida."
+    )
+    lead_id, created_at = save_lead(
+        clinic_id=request.clinicId,
+        session_id=session_id,
+        full_name=request.fullName.strip(),
+        phone=request.phone.strip(),
+        email=request.email.strip() if request.email else None,
+        preferred_channel=request.preferredChannel,
+        preferred_time=request.preferredTime.strip() if request.preferredTime else None,
+        latitude=rounded_latitude,
+        longitude=rounded_longitude,
+        distance_km=round(calculated_distance, 1),
+        analysis_summary=summary,
+        consent_text=consent_text,
+    )
+    return {
+        "ok": True,
+        "leadId": lead_id,
+        "createdAt": created_at,
+        "status": "new",
+        "clinic": {"id": clinic["id"], "name": clinic["name"]},
+        "imageShared": False,
+        "message": "Tu solicitud fue registrada para que el centro pueda contactarte.",
+    }
+
+
+@app.delete("/api/v1/leads/{lead_id}")
+def remove_lead(
+    lead_id: str,
+    x_derma_session: Annotated[str | None, Header()] = None,
+) -> dict:
+    session_id = validate_session(x_derma_session)
+    if not delete_lead(session_id, lead_id):
+        raise HTTPException(status_code=404, detail="Solicitud no encontrada.")
+    return {"ok": True, "deleted": lead_id}
+
+
+@app.get("/api/v1/partner/leads")
+def partner_leads(
+    clinic_id: Annotated[str, Query(min_length=3, max_length=80)],
+    x_partner_key: Annotated[str | None, Header()] = None,
+    limit: Annotated[int, Query(ge=1, le=100)] = 50,
+) -> dict:
+    if not x_partner_key or not hmac_compare(x_partner_key, PARTNER_API_KEY):
+        raise HTTPException(status_code=401, detail="Credencial de socio inválida.")
+    if not get_clinic(clinic_id):
+        raise HTTPException(status_code=404, detail="Centro no encontrado.")
+    return {"ok": True, "items": list_partner_leads(clinic_id, limit)}
+
+
+def hmac_compare(value_a: str, value_b: str) -> bool:
+    import hmac
+
+    return hmac.compare_digest(value_a.encode("utf-8"), value_b.encode("utf-8"))
 
 
 @app.get("/api/v1/history")

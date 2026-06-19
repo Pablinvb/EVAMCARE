@@ -46,6 +46,10 @@ en `.env.example`.
   coordenadas reales de variaciones localizadas de rojez, tono y microtextura.
 - Historial opcional por sesión; guarda resultados, nunca fotografías.
 - Límites de resolución y frecuencia, respuestas estructuradas y CORS.
+- Búsqueda consentida de centros por distancia.
+- Leads con resumen firmado del escaneo, ubicación aproximada y consentimiento
+  granular; la fotografía no se comparte.
+- Bandeja de leads para socios protegida mediante credencial.
 
 ## Endpoints
 
@@ -55,6 +59,17 @@ en `.env.example`.
 - `GET /api/v1/history`
 - `DELETE /api/v1/history/{analysis_id}`
 - `DELETE /api/v1/history`
+- `GET /api/v1/clinics`
+- `POST /api/v1/leads`
+- `DELETE /api/v1/leads/{lead_id}`
+- `GET /api/v1/partner/leads`
+
+Los centros incluidos inicialmente son perfiles demostrativos, no alianzas
+comerciales verificadas. Deben reemplazarse o marcarse como verificados solo
+después del proceso contractual y documental correspondiente.
+
+El proceso de incorporación está documentado en
+[`docs/PARTNER_CLINICS.md`](docs/PARTNER_CLINICS.md).
 
 ## Pruebas
 

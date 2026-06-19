@@ -20,6 +20,9 @@
   let imageReady = false;
   let sourceMode = null;
   let lastAnalysis = null;
+  let lastReferralToken = null;
+  let userLocation = null;
+  let selectedClinic = null;
 
   const stages = {
     capture: $("#stage-capture"),
@@ -365,6 +368,7 @@
       $("#progress-value").textContent = "100%";
       $("#processing-label").textContent = "Preparando tus resultados";
       lastAnalysis = payload.result;
+      lastReferralToken = payload.referralToken;
       renderResults(lastAnalysis);
       await wait(260);
       showStage("results");
@@ -549,9 +553,163 @@
     else image.onload = () => setTimeout(render, 80);
   }
 
+  function escapeHtml(value) {
+    return String(value ?? "").replace(/[&<>"']/g, (character) => ({
+      "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;",
+    })[character]);
+  }
+
+  function setReferralStatus(message, isError = false) {
+    const status = $("#referral-status");
+    status.textContent = message;
+    status.style.color = isError ? "#ffb4a9" : "#cbd4cf";
+  }
+
+  async function searchClinics(latitude, longitude) {
+    userLocation = { latitude, longitude };
+    setReferralStatus("Buscando centros dentro de 50 km...");
+    $("#clinic-grid").innerHTML = "";
+    $("#lead-form").classList.remove("open");
+    try {
+      const params = new URLSearchParams({
+        latitude: latitude.toString(),
+        longitude: longitude.toString(),
+        radius_km: "50",
+        limit: "9",
+      });
+      const response = await fetch(`${API_BASE}/api/v1/clinics?${params}`);
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload?.error?.message || "No se pudieron consultar los centros.");
+      renderClinics(payload.items);
+      setReferralStatus(payload.items.length
+        ? `${payload.items.length} centros encontrados. Los perfiles “Demo” todavía no representan alianzas verificadas.`
+        : "No encontramos centros registrados dentro del radio seleccionado.");
+    } catch (error) {
+      setReferralStatus(error.message || "No fue posible buscar centros.", true);
+    }
+  }
+
+  function renderClinics(clinics) {
+    $("#clinic-grid").innerHTML = clinics.map((clinic) => `
+      <article class="clinic-card">
+        <div class="clinic-badges">
+          <span class="clinic-badge ${clinic.demo ? "demo" : ""}">${clinic.demo ? "Perfil demo" : clinic.verified ? "Verificado" : "En revisión"}</span>
+          <span class="clinic-distance">${clinic.distanceKm} km</span>
+        </div>
+        <h4>${escapeHtml(clinic.name)}</h4>
+        <p>${escapeHtml(clinic.address)} · ${escapeHtml(clinic.city)}</p>
+        <div class="clinic-services">${clinic.services.map((service) => `<span>${escapeHtml(service)}</span>`).join("")}</div>
+        <button class="button button-primary select-clinic" data-clinic='${escapeHtml(JSON.stringify(clinic))}'>Solicitar contacto</button>
+      </article>
+    `).join("");
+  }
+
+  $("#find-clinics").addEventListener("click", () => {
+    if (!navigator.geolocation) {
+      setReferralStatus("Este navegador no ofrece geolocalización. Puedes utilizar la ubicación demo.", true);
+      return;
+    }
+    setReferralStatus("Esperando tu autorización de ubicación...");
+    navigator.geolocation.getCurrentPosition(
+      (position) => searchClinics(position.coords.latitude, position.coords.longitude),
+      () => setReferralStatus("No se obtuvo la ubicación. Puedes usar la demo de Quito.", true),
+      { enableHighAccuracy: false, timeout: 10000, maximumAge: 300000 },
+    );
+  });
+
+  $("#use-demo-location").addEventListener("click", () => searchClinics(-0.1807, -78.4678));
+
+  $("#clinic-grid").addEventListener("click", (event) => {
+    const deleteButton = event.target.closest(".delete-lead");
+    if (deleteButton) {
+      deleteReferralLead(deleteButton.dataset.leadId);
+      return;
+    }
+    const button = event.target.closest(".select-clinic");
+    if (!button) return;
+    selectedClinic = JSON.parse(button.dataset.clinic);
+    $("#selected-clinic-name").textContent = selectedClinic.name;
+    $("#lead-form").classList.add("open");
+    $("#lead-form").scrollIntoView({ behavior: "smooth", block: "center" });
+  });
+
+  $("#close-lead-form").addEventListener("click", () => {
+    $("#lead-form").classList.remove("open");
+    selectedClinic = null;
+  });
+
+  $("#lead-form").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (!selectedClinic || !userLocation || !lastReferralToken) {
+      setReferralStatus("Realiza un escaneo y selecciona un centro antes de enviar.", true);
+      return;
+    }
+    const submit = $("#submit-lead");
+    submit.disabled = true;
+    submit.textContent = "Enviando...";
+    const request = {
+      clinicId: selectedClinic.id,
+      referralToken: lastReferralToken,
+      fullName: $("#lead-name").value.trim(),
+      phone: $("#lead-phone").value.trim(),
+      email: $("#lead-email").value.trim() || null,
+      preferredChannel: $("#lead-channel").value,
+      preferredTime: $("#lead-time").value.trim() || null,
+      latitude: userLocation.latitude,
+      longitude: userLocation.longitude,
+      distanceKm: selectedClinic.distanceKm,
+      consentContact: $("#consent-contact").checked,
+      consentLocation: $("#consent-location").checked,
+      consentResults: $("#consent-results").checked,
+    };
+    try {
+      const response = await fetch(`${API_BASE}/api/v1/leads`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Derma-Session": sessionId,
+        },
+        body: JSON.stringify(request),
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload?.error?.message || "No se pudo registrar la solicitud.");
+      $("#lead-form").classList.remove("open");
+      $("#clinic-grid").innerHTML = `
+        <div class="lead-success">
+          <b>Solicitud registrada</b>
+          <span>${escapeHtml(payload.message)} La fotografía no fue compartida. Código: ${escapeHtml(payload.leadId.slice(0, 8))}</span>
+          <button class="button button-outline delete-lead" data-lead-id="${escapeHtml(payload.leadId)}">Eliminar solicitud</button>
+        </div>`;
+      setReferralStatus(`Solicitud enviada a ${payload.clinic.name}.`);
+    } catch (error) {
+      setReferralStatus(error.message || "No se pudo enviar la solicitud.", true);
+    } finally {
+      submit.disabled = false;
+      submit.innerHTML = `Solicitar contacto <span>↗</span>`;
+    }
+  });
+
+  async function deleteReferralLead(leadId) {
+    try {
+      const response = await fetch(`${API_BASE}/api/v1/leads/${encodeURIComponent(leadId)}`, {
+        method: "DELETE",
+        headers: { "X-Derma-Session": sessionId },
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload?.error?.message || "No se pudo eliminar.");
+      $("#clinic-grid").innerHTML = "";
+      setReferralStatus("La solicitud y sus datos fueron eliminados.");
+    } catch (error) {
+      setReferralStatus(error.message || "No se pudo eliminar la solicitud.", true);
+    }
+  }
+
   $("#restart-scan").addEventListener("click", () => {
     imageReady = false;
     sourceMode = null;
+    lastReferralToken = null;
+    userLocation = null;
+    selectedClinic = null;
     upload.value = "";
     preview.removeAttribute("src");
     preview.style.display = "none";
@@ -567,6 +725,10 @@
     });
     $("#progress-bar").style.width = "0";
     $("#progress-value").textContent = "0%";
+    $("#clinic-grid").innerHTML = "";
+    $("#referral-status").textContent = "";
+    $("#lead-form").classList.remove("open");
+    $("#lead-form").reset();
     showStage("capture");
   });
 })();

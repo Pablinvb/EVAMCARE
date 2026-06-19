@@ -7,6 +7,7 @@ import numpy as np
 from fastapi.testclient import TestClient
 
 from backend.main import app
+from backend.database import delete_session_leads
 
 
 def synthetic_image() -> bytes:
@@ -32,6 +33,7 @@ class ApiTests(unittest.TestCase):
 
     def tearDown(self) -> None:
         self.client.delete("/api/v1/history", headers=self.headers)
+        delete_session_leads(self.session)
         self.client_context.__exit__(None, None, None)
 
     def test_health(self) -> None:
@@ -99,6 +101,76 @@ class ApiTests(unittest.TestCase):
             files={"image": ("notes.txt", b"not an image", "text/plain")},
         )
         self.assertEqual(response.status_code, 415)
+
+    def test_nearby_clinic_and_consented_lead(self) -> None:
+        analysis = self.client.post(
+            "/api/v1/analyze",
+            headers=self.headers,
+            files={"image": ("face.jpg", io.BytesIO(synthetic_image()), "image/jpeg")},
+        )
+        self.assertEqual(analysis.status_code, 200, analysis.text)
+        token = analysis.json()["referralToken"]
+
+        clinics = self.client.get(
+            "/api/v1/clinics",
+            params={"latitude": -0.1807, "longitude": -78.4678, "radius_km": 50},
+        )
+        self.assertEqual(clinics.status_code, 200, clinics.text)
+        clinic = clinics.json()["items"][0]
+        self.assertTrue(clinic["demo"])
+        self.assertNotIn("latitude", clinic)
+        self.assertGreaterEqual(clinic["distanceKm"], 0)
+
+        lead_request = {
+            "clinicId": clinic["id"],
+            "referralToken": token,
+            "fullName": "Persona de Prueba",
+            "phone": "+593990000000",
+            "email": "persona@example.com",
+            "preferredChannel": "whatsapp",
+            "preferredTime": "Tardes",
+            "latitude": -0.1807,
+            "longitude": -78.4678,
+            "distanceKm": clinic["distanceKm"],
+            "consentContact": True,
+            "consentLocation": True,
+            "consentResults": True,
+        }
+        lead = self.client.post(
+            "/api/v1/leads", headers=self.headers, json=lead_request
+        )
+        self.assertEqual(lead.status_code, 201, lead.text)
+        self.assertFalse(lead.json()["imageShared"])
+
+        partner = self.client.get(
+            "/api/v1/partner/leads",
+            params={"clinic_id": clinic["id"]},
+            headers={"X-Partner-Key": "development-partner-key"},
+        )
+        self.assertEqual(partner.status_code, 200, partner.text)
+        matching = [
+            item for item in partner.json()["items"] if item["id"] == lead.json()["leadId"]
+        ]
+        self.assertEqual(len(matching), 1)
+        self.assertNotIn("image", matching[0])
+
+        deleted = self.client.delete(
+            f"/api/v1/leads/{lead.json()['leadId']}", headers=self.headers
+        )
+        self.assertEqual(deleted.status_code, 200)
+
+        lead_request["consentResults"] = False
+        rejected = self.client.post(
+            "/api/v1/leads", headers=self.headers, json=lead_request
+        )
+        self.assertEqual(rejected.status_code, 400)
+
+    def test_partner_leads_requires_key(self) -> None:
+        response = self.client.get(
+            "/api/v1/partner/leads",
+            params={"clinic_id": "demo-quito-norte"},
+        )
+        self.assertEqual(response.status_code, 401)
 
 
 if __name__ == "__main__":

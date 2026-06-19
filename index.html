@@ -268,6 +268,62 @@
             </article>
           </div>
 
+          <section class="referral-card" id="referral-section">
+            <div class="referral-intro">
+              <div>
+                <span class="eyebrow"><span></span> Conecta con especialistas</span>
+                <h3>¿Quieres hablar con un centro dermatológico?</h3>
+                <p>
+                  Busca centros cercanos y solicita que uno te contacte. Tú eliges
+                  qué centro recibe tu contacto, ubicación aproximada y resumen del
+                  escaneo. La fotografía nunca se comparte.
+                </p>
+              </div>
+              <div class="referral-actions">
+                <button class="button button-dark" id="find-clinics">
+                  Buscar centros cercanos
+                </button>
+                <button class="button button-outline" id="use-demo-location">
+                  Ver demo en Quito
+                </button>
+              </div>
+            </div>
+            <div class="referral-status" id="referral-status"></div>
+            <div class="clinic-grid" id="clinic-grid"></div>
+
+            <form class="lead-form" id="lead-form">
+              <div class="lead-form-heading">
+                <div>
+                  <span>SOLICITUD DE CONTACTO</span>
+                  <h4 id="selected-clinic-name">Centro seleccionado</h4>
+                </div>
+                <button type="button" class="icon-button" id="close-lead-form" aria-label="Cerrar formulario">×</button>
+              </div>
+              <div class="lead-fields">
+                <label>Nombre completo<input id="lead-name" required minlength="2" maxlength="120" autocomplete="name" /></label>
+                <label>Teléfono<input id="lead-phone" required minlength="7" maxlength="30" autocomplete="tel" /></label>
+                <label>Correo opcional<input id="lead-email" type="email" maxlength="254" autocomplete="email" /></label>
+                <label>Canal preferido
+                  <select id="lead-channel">
+                    <option value="whatsapp">WhatsApp</option>
+                    <option value="phone">Llamada</option>
+                    <option value="email">Correo</option>
+                  </select>
+                </label>
+                <label class="lead-wide">Horario preferido<input id="lead-time" maxlength="120" placeholder="Ej. lunes a viernes, después de las 17:00" /></label>
+              </div>
+              <div class="consent-list">
+                <label><input id="consent-contact" type="checkbox" required /> Autorizo compartir mis datos de contacto con el centro seleccionado.</label>
+                <label><input id="consent-location" type="checkbox" required /> Autorizo compartir mi ubicación aproximada para esta derivación.</label>
+                <label><input id="consent-results" type="checkbox" required /> Autorizo compartir el resumen del escaneo, sin fotografía.</label>
+              </div>
+              <div class="lead-submit-row">
+                <p>Podrás solicitar la eliminación del lead. Este envío no confirma una cita.</p>
+                <button class="button button-primary" type="submit" id="submit-lead">Solicitar contacto <span>↗</span></button>
+              </div>
+            </form>
+          </section>
+
           <div class="medical-note">
             <span>i</span>
             <p>

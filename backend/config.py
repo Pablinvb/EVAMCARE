@@ -2,7 +2,7 @@ import os
 from pathlib import Path
 
 APP_NAME = "DermaScan AI API"
-APP_VERSION = "0.2.0"
+APP_VERSION = "0.3.0"
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 ENVIRONMENT = os.getenv("DERMASCAN_ENV", "development")
@@ -32,3 +32,22 @@ CORS_ORIGINS = [
     ).split(",")
     if origin.strip()
 ]
+REFERRAL_TOKEN_SECRET = os.getenv(
+    "DERMASCAN_REFERRAL_TOKEN_SECRET",
+    "development-only-change-this-secret",
+)
+REFERRAL_TOKEN_TTL_SECONDS = int(
+    os.getenv("DERMASCAN_REFERRAL_TOKEN_TTL_SECONDS", "3600")
+)
+PARTNER_API_KEY = os.getenv(
+    "DERMASCAN_PARTNER_API_KEY",
+    "development-partner-key",
+)
+
+if ENVIRONMENT == "production":
+    if REFERRAL_TOKEN_SECRET == "development-only-change-this-secret":
+        raise RuntimeError(
+            "DERMASCAN_REFERRAL_TOKEN_SECRET debe configurarse en producción."
+        )
+    if PARTNER_API_KEY == "development-partner-key":
+        raise RuntimeError("DERMASCAN_PARTNER_API_KEY debe configurarse en producción.")
