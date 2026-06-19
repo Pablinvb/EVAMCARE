@@ -20,6 +20,8 @@ from .config import (
     ALLOWED_CONTENT_TYPES,
     APP_NAME,
     APP_VERSION,
+    CORS_ORIGINS,
+    ENVIRONMENT,
     MAX_IMAGE_PIXELS,
     MAX_UPLOAD_BYTES,
     PROJECT_ROOT,
@@ -58,12 +60,7 @@ app = FastAPI(
 )
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://127.0.0.1:4187",
-        "http://localhost:4187",
-        "http://127.0.0.1:8000",
-        "http://localhost:8000",
-    ],
+    allow_origins=CORS_ORIGINS,
     allow_credentials=False,
     allow_methods=["GET", "POST", "DELETE"],
     allow_headers=["Content-Type", "X-Derma-Session"],
@@ -152,6 +149,7 @@ def health() -> dict:
         "analyzer": "ready",
         "storesImages": False,
         "clinicalStatus": "research_only",
+        "environment": ENVIRONMENT,
     }
 
 

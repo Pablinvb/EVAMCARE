@@ -18,6 +18,21 @@ Después abre `http://127.0.0.1:8000`.
 La documentación interactiva de la API está disponible en
 `http://127.0.0.1:8000/docs`.
 
+## Ejecutar con Docker Compose
+
+Prepara la configuración local y levanta el servicio:
+
+```powershell
+Copy-Item .env.example .env
+docker compose up --build
+```
+
+Los resultados opcionales del historial quedan en el volumen persistente
+`dermascan_data`. El archivo `.env` no se publica en Git.
+
+Las variables disponibles y sus valores seguros de ejemplo están documentados
+en `.env.example`.
+
 ## Alcance del MVP
 
 - Backend FastAPI con OpenCV y SQLite.

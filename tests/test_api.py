@@ -36,6 +36,7 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertFalse(response.json()["storesImages"])
         self.assertEqual(response.json()["clinicalStatus"], "research_only")
+        self.assertIn(response.json()["environment"], {"development", "staging", "production"})
         self.assertEqual(self.client.get("/data/dermascan.db").status_code, 404)
 
     def test_clinical_claim_is_blocked(self) -> None:
