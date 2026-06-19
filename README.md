@@ -50,6 +50,10 @@ en `.env.example`.
 - Leads con resumen firmado del escaneo, ubicación aproximada y consentimiento
   granular; la fotografía no se comparte.
 - Bandeja de leads para socios protegida mediante credencial.
+- Orientación posterior al escaneo mediante señales declaradas por el usuario,
+  confianza fotográfica y hallazgos visuales.
+- Ruta de autocuidado con tiendas demo y productos cosméticos compatibles.
+- Ruta dermatológica con disponibilidad y solicitud de horario.
 
 ## Endpoints
 
@@ -63,10 +67,19 @@ en `.env.example`.
 - `POST /api/v1/leads`
 - `DELETE /api/v1/leads/{lead_id}`
 - `GET /api/v1/partner/leads`
+- `POST /api/v1/guidance`
+- `GET /api/v1/stores`
+- `GET /api/v1/stores/{store_id}/recommendations`
+- `GET /api/v1/clinics/{clinic_id}/availability`
+- `POST /api/v1/appointments`
 
 Los centros incluidos inicialmente son perfiles demostrativos, no alianzas
 comerciales verificadas. Deben reemplazarse o marcarse como verificados solo
 después del proceso contractual y documental correspondiente.
+
+Las recomendaciones de productos son cosméticas y no se muestran cuando el
+cuestionario contiene señales de alerta. Las citas y catálogos incluidos son
+demostrativos hasta integrar disponibilidad e inventario de socios reales.
 
 El proceso de incorporación está documentado en
 [`docs/PARTNER_CLINICS.md`](docs/PARTNER_CLINICS.md).

@@ -2,7 +2,7 @@ import os
 from pathlib import Path
 
 APP_NAME = "DermaScan AI API"
-APP_VERSION = "0.3.0"
+APP_VERSION = "0.4.0"
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 ENVIRONMENT = os.getenv("DERMASCAN_ENV", "development")

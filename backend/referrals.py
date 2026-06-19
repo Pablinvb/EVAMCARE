@@ -22,6 +22,10 @@ def create_referral_token(result: dict[str, Any]) -> str:
                 {"name": item["name"], "score": item["score"], "status": item["status"]}
                 for item in priorities
             ],
+            "metrics": {
+                item["name"]: item["score"]
+                for item in result["metrics"]
+            },
             "attentionZoneCount": len(result.get("attentionZones", [])),
             "engineVersion": result.get("engine", {}).get("version"),
         },

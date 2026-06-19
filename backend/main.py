@@ -33,12 +33,18 @@ from .config import (
     REFERRAL_TOKEN_TTL_SECONDS,
 )
 from .clinical_status import get_clinical_status
+from .guidance import evaluate_guidance, recommend_products
 from .database import (
+    create_appointment,
     delete_analysis,
     delete_lead,
     delete_session_history,
     get_active_clinics,
+    get_active_stores,
+    get_available_slots,
     get_clinic,
+    get_store,
+    get_store_products,
     initialize_database,
     list_partner_leads,
     list_analyses,
@@ -67,6 +73,27 @@ class LeadRequest(BaseModel):
     consentContact: bool
     consentLocation: bool
     consentResults: bool
+
+
+class GuidanceAnswers(BaseModel):
+    rapidlyWorsening: bool = False
+    feverOrUnwell: bool = False
+    pusWarmthSwelling: bool = False
+    eyesMouthBlisters: bool = False
+    changingBleedingSpot: bool = False
+    notHealing: bool = False
+    deepPainfulLesions: bool = False
+    scarring: bool = False
+    persistentConcern: bool = False
+
+
+class GuidanceRequest(BaseModel):
+    referralToken: str = Field(min_length=20, max_length=5000)
+    answers: GuidanceAnswers
+
+
+class AppointmentRequest(LeadRequest):
+    slotId: str = Field(min_length=5, max_length=120)
 
 
 @asynccontextmanager
@@ -260,6 +287,113 @@ def clinics(
         "notice": (
             "Los centros marcados como demo son datos demostrativos y no representan "
             "alianzas comerciales verificadas."
+        ),
+    }
+
+
+@app.post("/api/v1/guidance")
+def guidance(request: GuidanceRequest) -> dict:
+    try:
+        summary = verify_referral_token(request.referralToken)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {
+        "ok": True,
+        "guidance": evaluate_guidance(summary, request.answers.model_dump()),
+    }
+
+
+@app.get("/api/v1/stores")
+def stores(
+    latitude: Annotated[float, Query(ge=-90, le=90)],
+    longitude: Annotated[float, Query(ge=-180, le=180)],
+    radius_km: Annotated[float, Query(ge=1, le=200)] = 50,
+    limit: Annotated[int, Query(ge=1, le=20)] = 10,
+) -> dict:
+    matches = []
+    for store in get_active_stores():
+        distance = distance_km(
+            latitude, longitude, store["latitude"], store["longitude"]
+        )
+        if distance <= radius_km:
+            public_store = {
+                key: value
+                for key, value in store.items()
+                if key not in {"latitude", "longitude"}
+            }
+            public_store["distanceKm"] = round(distance, 1)
+            matches.append(public_store)
+    matches.sort(key=lambda item: item["distanceKm"])
+    return {
+        "ok": True,
+        "items": matches[:limit],
+        "locationStored": False,
+        "notice": "Las tiendas demo no representan convenios ni disponibilidad comercial real.",
+    }
+
+
+@app.get("/api/v1/stores/{store_id}/recommendations")
+def store_recommendations(
+    store_id: str,
+    referral_token: Annotated[str, Query(min_length=20, max_length=5000)],
+) -> dict:
+    store = get_store(store_id)
+    if not store:
+        raise HTTPException(status_code=404, detail="Tienda no encontrada.")
+    try:
+        summary = verify_referral_token(referral_token)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    products = recommend_products(summary, get_store_products(store_id))
+    return {
+        "ok": True,
+        "store": {
+            key: value for key, value in store.items() if key not in {"latitude", "longitude"}
+        },
+        "products": products,
+        "disclaimer": (
+            "Sugerencias cosméticas orientativas. Suspende el uso si aparece irritación "
+            "y consulta a un profesional ante síntomas persistentes o de alerta."
+        ),
+    }
+
+
+@app.get("/api/v1/clinics/{clinic_id}/availability")
+def clinic_availability(clinic_id: str) -> dict:
+    clinic = get_clinic(clinic_id)
+    if not clinic:
+        raise HTTPException(status_code=404, detail="Centro no encontrado.")
+    return {"ok": True, "items": get_available_slots(clinic_id)}
+
+
+@app.post("/api/v1/appointments", status_code=201)
+def book_appointment(
+    request: AppointmentRequest,
+    x_derma_session: Annotated[str | None, Header()] = None,
+) -> dict:
+    lead_response = create_lead(request, x_derma_session)
+    session_id = validate_session(x_derma_session)
+    try:
+        appointment_id, created_at, starts_at = create_appointment(
+            lead_id=lead_response["leadId"],
+            slot_id=request.slotId,
+            clinic_id=request.clinicId,
+            session_id=session_id,
+        )
+    except ValueError as exc:
+        delete_lead(session_id, lead_response["leadId"])
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return {
+        "ok": True,
+        "appointmentId": appointment_id,
+        "leadId": lead_response["leadId"],
+        "createdAt": created_at,
+        "startsAt": starts_at,
+        "status": "requested",
+        "clinic": lead_response["clinic"],
+        "imageShared": False,
+        "message": (
+            "La solicitud de cita fue registrada. El centro debe confirmarla."
         ),
     }
 

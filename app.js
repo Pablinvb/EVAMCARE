@@ -23,6 +23,7 @@
   let lastReferralToken = null;
   let userLocation = null;
   let selectedClinic = null;
+  let guidanceRoute = null;
 
   const stages = {
     capture: $("#stage-capture"),
@@ -589,6 +590,30 @@
     }
   }
 
+  async function searchStores(latitude, longitude) {
+    userLocation = { latitude, longitude };
+    setReferralStatus("Buscando tiendas dentro de 50 km...");
+    $("#clinic-grid").innerHTML = "";
+    $("#product-grid").innerHTML = "";
+    try {
+      const params = new URLSearchParams({
+        latitude: latitude.toString(),
+        longitude: longitude.toString(),
+        radius_km: "50",
+        limit: "9",
+      });
+      const response = await fetch(`${API_BASE}/api/v1/stores?${params}`);
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload?.error?.message || "No se pudieron consultar las tiendas.");
+      renderStores(payload.items);
+      setReferralStatus(payload.items.length
+        ? `${payload.items.length} tiendas encontradas. Los perfiles demo no representan convenios comerciales reales.`
+        : "No encontramos tiendas registradas dentro del radio seleccionado.");
+    } catch (error) {
+      setReferralStatus(error.message || "No fue posible buscar tiendas.", true);
+    }
+  }
+
   function renderClinics(clinics) {
     $("#clinic-grid").innerHTML = clinics.map((clinic) => `
       <article class="clinic-card">
@@ -599,10 +624,56 @@
         <h4>${escapeHtml(clinic.name)}</h4>
         <p>${escapeHtml(clinic.address)} · ${escapeHtml(clinic.city)}</p>
         <div class="clinic-services">${clinic.services.map((service) => `<span>${escapeHtml(service)}</span>`).join("")}</div>
-        <button class="button button-primary select-clinic" data-clinic='${escapeHtml(JSON.stringify(clinic))}'>Solicitar contacto</button>
+        <button class="button button-primary select-clinic" data-clinic='${escapeHtml(JSON.stringify(clinic))}'>Ver horarios</button>
       </article>
     `).join("");
   }
+
+  function renderStores(stores) {
+    $("#clinic-grid").innerHTML = stores.map((store) => `
+      <article class="clinic-card store-card">
+        <div class="clinic-badges">
+          <span class="clinic-badge ${store.demo ? "demo" : ""}">${store.demo ? "Tienda demo" : store.verified ? "Verificada" : "En revisión"}</span>
+          <span class="clinic-distance">${store.distanceKm} km</span>
+        </div>
+        <h4>${escapeHtml(store.name)}</h4>
+        <p>${escapeHtml(store.address)} · ${escapeHtml(store.city)}</p>
+        <button class="button button-primary select-store" data-store-id="${escapeHtml(store.id)}">Ver productos sugeridos</button>
+      </article>
+    `).join("");
+  }
+
+  $("#get-guidance").addEventListener("click", async () => {
+    if (!lastReferralToken) return;
+    const answers = {};
+    $$("[data-guidance]").forEach((input) => {
+      answers[input.dataset.guidance] = input.checked;
+    });
+    try {
+      const response = await fetch(`${API_BASE}/api/v1/guidance`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ referralToken: lastReferralToken, answers }),
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload?.error?.message || "No se pudo generar la orientación.");
+      const guidance = payload.guidance;
+      guidanceRoute = guidance.route;
+      $("#guidance-result").classList.add("visible");
+      $("#guidance-result").innerHTML = `
+        <h4>${escapeHtml(guidance.title)}</h4>
+        <p>${escapeHtml(guidance.message)}</p>
+        <div class="guidance-reasons">${guidance.reasons.map((reason) => `<span>${escapeHtml(reason)}</span>`).join("")}</div>`;
+      $("#route-actions").classList.add("visible");
+      $("#find-clinics").style.display = guidance.allowDermatologyBooking ? "inline-flex" : "none";
+      $("#find-stores").style.display = guidance.allowProducts ? "inline-flex" : "none";
+      $("#clinic-grid").innerHTML = "";
+      $("#product-grid").innerHTML = "";
+      setReferralStatus("");
+    } catch (error) {
+      setReferralStatus(error.message || "No se pudo generar la orientación.", true);
+    }
+  });
 
   $("#find-clinics").addEventListener("click", () => {
     if (!navigator.geolocation) {
@@ -617,21 +688,88 @@
     );
   });
 
-  $("#use-demo-location").addEventListener("click", () => searchClinics(-0.1807, -78.4678));
+  $("#find-stores").addEventListener("click", () => {
+    if (!navigator.geolocation) {
+      setReferralStatus("Este navegador no ofrece geolocalización. Puedes utilizar la ubicación demo.", true);
+      return;
+    }
+    setReferralStatus("Esperando tu autorización de ubicación...");
+    navigator.geolocation.getCurrentPosition(
+      (position) => searchStores(position.coords.latitude, position.coords.longitude),
+      () => setReferralStatus("No se obtuvo la ubicación. Puedes usar la demo de Quito.", true),
+      { enableHighAccuracy: false, timeout: 10000, maximumAge: 300000 },
+    );
+  });
 
-  $("#clinic-grid").addEventListener("click", (event) => {
+  $("#use-demo-location").addEventListener("click", () => {
+    if (guidanceRoute === "cosmetic-care") searchStores(-0.1807, -78.4678);
+    else searchClinics(-0.1807, -78.4678);
+  });
+
+  $("#clinic-grid").addEventListener("click", async (event) => {
     const deleteButton = event.target.closest(".delete-lead");
     if (deleteButton) {
       deleteReferralLead(deleteButton.dataset.leadId);
+      return;
+    }
+    const storeButton = event.target.closest(".select-store");
+    if (storeButton) {
+      await loadStoreProducts(storeButton.dataset.storeId);
       return;
     }
     const button = event.target.closest(".select-clinic");
     if (!button) return;
     selectedClinic = JSON.parse(button.dataset.clinic);
     $("#selected-clinic-name").textContent = selectedClinic.name;
+    await loadAvailability(selectedClinic.id);
     $("#lead-form").classList.add("open");
+    $("#submit-lead").innerHTML = `Solicitar cita <span>↗</span>`;
     $("#lead-form").scrollIntoView({ behavior: "smooth", block: "center" });
   });
+
+  async function loadStoreProducts(storeId) {
+    setReferralStatus("Preparando productos compatibles con tu evaluación...");
+    try {
+      const params = new URLSearchParams({ referral_token: lastReferralToken });
+      const response = await fetch(`${API_BASE}/api/v1/stores/${encodeURIComponent(storeId)}/recommendations?${params}`);
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload?.error?.message || "No se pudieron recomendar productos.");
+      $("#product-grid").innerHTML = payload.products.map((product) => `
+        <article class="product-card">
+          <small>${escapeHtml(product.category)} · Producto demo</small>
+          <h4>${escapeHtml(product.name)}</h4>
+          <p>${escapeHtml(product.reason)}</p>
+          <p><b>Ingredientes:</b> ${product.ingredients.map(escapeHtml).join(", ")}</p>
+          <p><b>Uso:</b> ${escapeHtml(product.usage)}</p>
+          <div class="product-meta"><span>${escapeHtml(payload.store.name)}</span><b>$${product.price.toFixed(2)}</b></div>
+        </article>
+      `).join("");
+      setReferralStatus(payload.disclaimer);
+      $("#product-grid").scrollIntoView({ behavior: "smooth", block: "center" });
+    } catch (error) {
+      setReferralStatus(error.message || "No se pudieron cargar los productos.", true);
+    }
+  }
+
+  async function loadAvailability(clinicId) {
+    const field = $(".appointment-slot-field");
+    const select = $("#appointment-slot");
+    field.classList.add("visible");
+    select.innerHTML = `<option value="">Cargando horarios...</option>`;
+    try {
+      const response = await fetch(`${API_BASE}/api/v1/clinics/${encodeURIComponent(clinicId)}/availability`);
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload?.error?.message || "No se pudo consultar disponibilidad.");
+      select.innerHTML = `<option value="">Selecciona un horario</option>` + payload.items.map((slot) => {
+        const label = new Intl.DateTimeFormat("es-EC", { dateStyle: "medium", timeStyle: "short" }).format(new Date(slot.startsAt));
+        return `<option value="${escapeHtml(slot.id)}">${escapeHtml(label)}</option>`;
+      }).join("");
+      select.required = true;
+    } catch (error) {
+      select.innerHTML = `<option value="">Sin horarios disponibles</option>`;
+      setReferralStatus(error.message || "No se pudo consultar disponibilidad.", true);
+    }
+  }
 
   $("#close-lead-form").addEventListener("click", () => {
     $("#lead-form").classList.remove("open");
@@ -662,8 +800,11 @@
       consentLocation: $("#consent-location").checked,
       consentResults: $("#consent-results").checked,
     };
+    const appointmentSlot = $("#appointment-slot").value;
+    if (appointmentSlot) request.slotId = appointmentSlot;
     try {
-      const response = await fetch(`${API_BASE}/api/v1/leads`, {
+      const endpoint = appointmentSlot ? "/api/v1/appointments" : "/api/v1/leads";
+      const response = await fetch(`${API_BASE}${endpoint}`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -676,7 +817,7 @@
       $("#lead-form").classList.remove("open");
       $("#clinic-grid").innerHTML = `
         <div class="lead-success">
-          <b>Solicitud registrada</b>
+          <b>${appointmentSlot ? "Solicitud de cita registrada" : "Solicitud registrada"}</b>
           <span>${escapeHtml(payload.message)} La fotografía no fue compartida. Código: ${escapeHtml(payload.leadId.slice(0, 8))}</span>
           <button class="button button-outline delete-lead" data-lead-id="${escapeHtml(payload.leadId)}">Eliminar solicitud</button>
         </div>`;
@@ -685,7 +826,7 @@
       setReferralStatus(error.message || "No se pudo enviar la solicitud.", true);
     } finally {
       submit.disabled = false;
-      submit.innerHTML = `Solicitar contacto <span>↗</span>`;
+      submit.innerHTML = `Solicitar cita <span>↗</span>`;
     }
   });
 
@@ -710,6 +851,7 @@
     lastReferralToken = null;
     userLocation = null;
     selectedClinic = null;
+    guidanceRoute = null;
     upload.value = "";
     preview.removeAttribute("src");
     preview.style.display = "none";
@@ -729,6 +871,11 @@
     $("#referral-status").textContent = "";
     $("#lead-form").classList.remove("open");
     $("#lead-form").reset();
+    $("#product-grid").innerHTML = "";
+    $("#guidance-result").classList.remove("visible");
+    $("#guidance-result").innerHTML = "";
+    $("#route-actions").classList.remove("visible");
+    $$("[data-guidance]").forEach((input) => { input.checked = false; });
     showStage("capture");
   });
 })();

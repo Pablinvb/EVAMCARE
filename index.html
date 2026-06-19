@@ -271,25 +271,37 @@
           <section class="referral-card" id="referral-section">
             <div class="referral-intro">
               <div>
-                <span class="eyebrow"><span></span> Conecta con especialistas</span>
-                <h3>¿Quieres hablar con un centro dermatológico?</h3>
+                <span class="eyebrow"><span></span> Tu siguiente paso</span>
+                <h3>Recibe una orientación más segura.</h3>
                 <p>
-                  Busca centros cercanos y solicita que uno te contacte. Tú eliges
-                  qué centro recibe tu contacto, ubicación aproximada y resumen del
-                  escaneo. La fotografía nunca se comparte.
+                  Responde estas preguntas antes de recomendar una rutina o una
+                  consulta. No sustituyen una valoración médica.
                 </p>
               </div>
-              <div class="referral-actions">
-                <button class="button button-dark" id="find-clinics">
-                  Buscar centros cercanos
-                </button>
-                <button class="button button-outline" id="use-demo-location">
-                  Ver demo en Quito
-                </button>
-              </div>
+            </div>
+            <div class="guidance-questions" id="guidance-questions">
+              <label><input type="checkbox" data-guidance="changingBleedingSpot" /> ¿Tienes una mancha o lesión nueva, cambiante o que sangra?</label>
+              <label><input type="checkbox" data-guidance="notHealing" /> ¿Hay una lesión que no cicatriza?</label>
+              <label><input type="checkbox" data-guidance="deepPainfulLesions" /> ¿Tienes lesiones profundas o dolorosas?</label>
+              <label><input type="checkbox" data-guidance="scarring" /> ¿Hay cicatrices o marcas persistentes?</label>
+              <label><input type="checkbox" data-guidance="persistentConcern" /> ¿El problema persiste o te preocupa especialmente?</label>
+              <label><input type="checkbox" data-guidance="rapidlyWorsening" /> ¿Está empeorando rápidamente?</label>
+              <label><input type="checkbox" data-guidance="feverOrUnwell" /> ¿Tienes fiebre o malestar general?</label>
+              <label><input type="checkbox" data-guidance="pusWarmthSwelling" /> ¿Hay secreción, calor o hinchazón?</label>
+              <label><input type="checkbox" data-guidance="eyesMouthBlisters" /> ¿Hay ampollas o afectación de ojos o boca?</label>
+            </div>
+            <button class="button button-primary guidance-button" id="get-guidance">
+              Orientar mi siguiente paso <span>↗</span>
+            </button>
+            <div class="guidance-result" id="guidance-result"></div>
+            <div class="referral-actions route-actions" id="route-actions">
+              <button class="button button-dark" id="find-clinics">Buscar centros cercanos</button>
+              <button class="button button-dark" id="find-stores">Buscar tiendas cercanas</button>
+              <button class="button button-outline" id="use-demo-location">Usar ubicación demo de Quito</button>
             </div>
             <div class="referral-status" id="referral-status"></div>
             <div class="clinic-grid" id="clinic-grid"></div>
+            <div class="product-grid" id="product-grid"></div>
 
             <form class="lead-form" id="lead-form">
               <div class="lead-form-heading">
@@ -311,6 +323,9 @@
                   </select>
                 </label>
                 <label class="lead-wide">Horario preferido<input id="lead-time" maxlength="120" placeholder="Ej. lunes a viernes, después de las 17:00" /></label>
+                <label class="lead-wide appointment-slot-field">Horario disponible
+                  <select id="appointment-slot"><option value="">Selecciona un horario</option></select>
+                </label>
               </div>
               <div class="consent-list">
                 <label><input id="consent-contact" type="checkbox" required /> Autorizo compartir mis datos de contacto con el centro seleccionado.</label>
@@ -319,7 +334,7 @@
               </div>
               <div class="lead-submit-row">
                 <p>Podrás solicitar la eliminación del lead. Este envío no confirma una cita.</p>
-                <button class="button button-primary" type="submit" id="submit-lead">Solicitar contacto <span>↗</span></button>
+                <button class="button button-primary" type="submit" id="submit-lead">Solicitar cita <span>↗</span></button>
               </div>
             </form>
           </section>

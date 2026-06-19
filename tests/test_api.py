@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 
 from backend.main import app
 from backend.database import delete_session_leads
+from backend.referrals import create_referral_token
 
 
 def synthetic_image() -> bytes:
@@ -171,6 +172,112 @@ class ApiTests(unittest.TestCase):
             params={"clinic_id": "demo-quito-norte"},
         )
         self.assertEqual(response.status_code, 401)
+
+    def test_guidance_routes_and_store_recommendations(self) -> None:
+        analysis = self.client.post(
+            "/api/v1/analyze",
+            headers=self.headers,
+            files={"image": ("face.jpg", io.BytesIO(synthetic_image()), "image/jpeg")},
+        ).json()
+        token = analysis["referralToken"]
+
+        urgent = self.client.post(
+            "/api/v1/guidance",
+            json={
+                "referralToken": token,
+                "answers": {"feverOrUnwell": True, "rapidlyWorsening": True},
+            },
+        )
+        self.assertEqual(urgent.status_code, 200, urgent.text)
+        self.assertEqual(urgent.json()["guidance"]["route"], "urgent-care")
+        self.assertFalse(urgent.json()["guidance"]["allowProducts"])
+
+        safe_result = {
+            "overall": 82,
+            "skinType": "Seca",
+            "confidence": 88,
+            "attentionZones": [],
+            "engine": {"version": "0.3.0"},
+            "metrics": [
+                {"name": "Hidratación", "score": 55, "status": "Atención"},
+                {"name": "Textura", "score": 72, "status": "Estable"},
+                {"name": "Poros", "score": 85, "status": "Óptimo"},
+                {"name": "Imperfecciones", "score": 90, "status": "Óptimo"},
+                {"name": "Pigmentación", "score": 84, "status": "Óptimo"},
+                {"name": "Líneas visibles", "score": 80, "status": "Óptimo"},
+                {"name": "Enrojecimiento", "score": 90, "status": "Óptimo"},
+                {"name": "Balance sebáceo", "score": 80, "status": "Óptimo"},
+            ],
+        }
+        safe_token = create_referral_token(safe_result)
+        cosmetic = self.client.post(
+            "/api/v1/guidance",
+            json={"referralToken": safe_token, "answers": {}},
+        )
+        self.assertEqual(cosmetic.status_code, 200, cosmetic.text)
+        self.assertEqual(cosmetic.json()["guidance"]["route"], "cosmetic-care")
+        self.assertTrue(cosmetic.json()["guidance"]["allowProducts"])
+
+        stores = self.client.get(
+            "/api/v1/stores",
+            params={"latitude": -0.1807, "longitude": -78.4678},
+        )
+        self.assertEqual(stores.status_code, 200, stores.text)
+        store = stores.json()["items"][0]
+        self.assertTrue(store["demo"])
+        recommendations = self.client.get(
+            f"/api/v1/stores/{store['id']}/recommendations",
+            params={"referral_token": safe_token},
+        )
+        self.assertEqual(recommendations.status_code, 200, recommendations.text)
+        self.assertGreater(len(recommendations.json()["products"]), 0)
+        self.assertTrue(
+            any(
+                product["category"] == "sunscreen"
+                for product in recommendations.json()["products"]
+            )
+        )
+
+    def test_appointment_uses_available_slot(self) -> None:
+        token = self.client.post(
+            "/api/v1/analyze",
+            headers=self.headers,
+            files={"image": ("face.jpg", io.BytesIO(synthetic_image()), "image/jpeg")},
+        ).json()["referralToken"]
+        clinics = self.client.get(
+            "/api/v1/clinics",
+            params={"latitude": -0.1807, "longitude": -78.4678},
+        ).json()["items"]
+        clinic = clinics[0]
+        slots = self.client.get(
+            f"/api/v1/clinics/{clinic['id']}/availability"
+        ).json()["items"]
+        self.assertGreater(len(slots), 0)
+        request = {
+            "clinicId": clinic["id"],
+            "referralToken": token,
+            "fullName": "Paciente Agenda",
+            "phone": "+593990000222",
+            "email": None,
+            "preferredChannel": "phone",
+            "preferredTime": None,
+            "latitude": -0.1807,
+            "longitude": -78.4678,
+            "distanceKm": clinic["distanceKm"],
+            "consentContact": True,
+            "consentLocation": True,
+            "consentResults": True,
+            "slotId": slots[0]["id"],
+        }
+        appointment = self.client.post(
+            "/api/v1/appointments", headers=self.headers, json=request
+        )
+        self.assertEqual(appointment.status_code, 201, appointment.text)
+        self.assertEqual(appointment.json()["status"], "requested")
+        remaining = self.client.get(
+            f"/api/v1/clinics/{clinic['id']}/availability"
+        ).json()["items"]
+        self.assertNotIn(slots[0]["id"], [slot["id"] for slot in remaining])
 
 
 if __name__ == "__main__":
