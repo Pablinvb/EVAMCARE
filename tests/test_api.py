@@ -317,20 +317,55 @@ class ApiTests(unittest.TestCase):
             params={"latitude": -0.1807, "longitude": -78.4678},
         )
         self.assertEqual(stores.status_code, 200, stores.text)
-        store = stores.json()["items"][0]
-        self.assertTrue(store["demo"])
+        real_stores = [
+            item for item in stores.json()["items"] if item.get("online")
+        ]
+        self.assertEqual(len(real_stores), 5)
+        store = next(item for item in real_stores if item["id"] == "fybeca")
         recommendations = self.client.get(
             f"/api/v1/stores/{store['id']}/recommendations",
             params={"referral_token": safe_token},
         )
         self.assertEqual(recommendations.status_code, 200, recommendations.text)
         self.assertGreater(len(recommendations.json()["products"]), 0)
+        self.assertEqual(
+            recommendations.json()["routine"]["skinType"], "Seca"
+        )
+        steps = {
+            product["routineStep"]
+            for product in recommendations.json()["products"]
+        }
+        self.assertIn("moisturize", steps)
+        for product in recommendations.json()["products"]:
+            self.assertIn("Seca", product["skinTypes"])
+            self.assertTrue(product["sourceUrl"].startswith("https://"))
+            self.assertTrue(product["externalReference"])
         self.assertTrue(
             any(
                 product["category"] == "sunscreen"
                 for product in recommendations.json()["products"]
             )
         )
+
+        # Every connected retailer must provide the three essential steps for
+        # an equilibrated-skin routine before it is offered as a complete shop.
+        balanced_result = dict(safe_result)
+        balanced_result["skinType"] = "Equilibrada"
+        balanced_token = create_referral_token(balanced_result)
+        for retailer in real_stores:
+            response = self.client.get(
+                f"/api/v1/stores/{retailer['id']}/recommendations",
+                params={"referral_token": balanced_token},
+            )
+            self.assertEqual(response.status_code, 200, response.text)
+            retailer_steps = {
+                product["routineStep"]
+                for product in response.json()["products"]
+            }
+            self.assertTrue(
+                {"cleanse", "moisturize", "protect"}.issubset(retailer_steps),
+                f"{retailer['name']} no cubre la rutina esencial: {retailer_steps}",
+            )
 
     def test_appointment_uses_available_slot(self) -> None:
         token = self.client.post(

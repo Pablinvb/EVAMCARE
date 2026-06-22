@@ -346,6 +346,15 @@ def stores(
 ) -> dict:
     matches = []
     for store in get_active_stores():
+        if store.get("online"):
+            public_store = {
+                key: value
+                for key, value in store.items()
+                if key not in {"latitude", "longitude"}
+            }
+            public_store["distanceKm"] = None
+            matches.append(public_store)
+            continue
         distance = distance_km(
             latitude, longitude, store["latitude"], store["longitude"]
         )
@@ -357,7 +366,12 @@ def stores(
             }
             public_store["distanceKm"] = round(distance, 1)
             matches.append(public_store)
-    matches.sort(key=lambda item: item["distanceKm"])
+    matches.sort(
+        key=lambda item: (
+            not item.get("online", False),
+            item["distanceKm"] if item["distanceKm"] is not None else 0,
+        )
+    )
     return {
         "ok": True,
         "items": matches[:limit],
@@ -385,10 +399,41 @@ def store_recommendations(
             key: value for key, value in store.items() if key not in {"latitude", "longitude"}
         },
         "products": products,
+        "routine": _build_routine(products, summary.get("skinType", "Equilibrada")),
         "disclaimer": (
             "Sugerencias cosméticas orientativas. Suspende el uso si aparece irritación "
             "y consulta a un profesional ante síntomas persistentes o de alerta."
         ),
+    }
+
+
+def _build_routine(products: list[dict], skin_type: str) -> dict:
+    steps = []
+    labels = {
+        "cleanse": ("Limpieza", "Mañana y noche"),
+        "treat": ("Tratamiento", "Una vez al día según tolerancia"),
+        "moisturize": ("Hidratación", "Mañana y noche"),
+        "protect": ("Protección solar", "Cada mañana y reaplicar"),
+    }
+    for step in ("cleanse", "treat", "moisturize", "protect"):
+        product = next(
+            (item for item in products if item.get("routineStep") == step),
+            None,
+        )
+        if product:
+            steps.append(
+                {
+                    "step": step,
+                    "title": labels[step][0],
+                    "frequency": labels[step][1],
+                    "productId": product["id"],
+                }
+            )
+    return {
+        "skinType": skin_type,
+        "morningOrder": ["cleanse", "treat", "moisturize", "protect"],
+        "nightOrder": ["cleanse", "treat", "moisturize"],
+        "steps": steps,
     }
 
 

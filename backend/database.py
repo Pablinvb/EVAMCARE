@@ -6,6 +6,8 @@ from typing import Any, Iterator
 from uuid import uuid4
 
 from .config import DATABASE_PATH, DATA_DIR
+from .catalog_data import PRODUCTS as REAL_PRODUCTS
+from .catalog_data import RETAILERS, VERIFIED_AT
 
 
 def initialize_database() -> None:
@@ -109,6 +111,15 @@ def initialize_database() -> None:
             )
             """
         )
+        _ensure_column(connection, "stores", "website", "TEXT")
+        _ensure_column(connection, "stores", "online", "INTEGER NOT NULL DEFAULT 0")
+        _ensure_column(connection, "stores", "retailer_code", "TEXT")
+        _ensure_column(connection, "products", "brand", "TEXT")
+        _ensure_column(connection, "products", "source_url", "TEXT")
+        _ensure_column(connection, "products", "skin_types_json", "TEXT NOT NULL DEFAULT '[]'")
+        _ensure_column(connection, "products", "routine_step", "TEXT")
+        _ensure_column(connection, "products", "verified_at", "TEXT")
+        _ensure_column(connection, "products", "external_reference", "INTEGER NOT NULL DEFAULT 0")
         connection.execute(
             """
             CREATE TABLE IF NOT EXISTS appointment_slots (
@@ -156,7 +167,18 @@ def initialize_database() -> None:
         )
         _seed_demo_clinics(connection)
         _seed_demo_stores(connection)
+        _seed_real_retailers(connection)
         _ensure_demo_slots(connection)
+
+
+def _ensure_column(
+    connection: sqlite3.Connection, table: str, column: str, declaration: str
+) -> None:
+    columns = {
+        row["name"] for row in connection.execute(f"PRAGMA table_info({table})")
+    }
+    if column not in columns:
+        connection.execute(f"ALTER TABLE {table} ADD COLUMN {column} {declaration}")
 
 
 @contextmanager
@@ -394,6 +416,78 @@ def _seed_demo_stores(connection: sqlite3.Connection) -> None:
     )
 
 
+def _seed_real_retailers(connection: sqlite3.Connection) -> None:
+    for retailer_id, name, website in RETAILERS:
+        connection.execute(
+            """
+            INSERT INTO stores (
+                id, name, city, address, latitude, longitude, verified, demo,
+                active, website, online, retailer_code
+            ) VALUES (?, ?, 'Ecuador', 'Tienda en línea', 0, 0, 0, 0, 1, ?, 1, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                name=excluded.name, website=excluded.website, online=1,
+                retailer_code=excluded.retailer_code, active=1
+            """,
+            (retailer_id, name, website, retailer_id),
+        )
+    for product in REAL_PRODUCTS:
+        (
+            product_id,
+            retailer_id,
+            name,
+            brand,
+            category,
+            step,
+            price,
+            source_url,
+            skin_types,
+            concerns,
+            ingredients,
+            usage,
+            stock,
+        ) = product
+        connection.execute(
+            """
+            INSERT INTO products (
+                id, store_id, name, category, description, ingredients_json,
+                concerns_json, usage_text, price, currency, stock, demo, brand,
+                source_url, skin_types_json, routine_step, verified_at,
+                external_reference
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'USD', ?, 0, ?, ?, ?, ?, ?, 1)
+            ON CONFLICT(id) DO UPDATE SET
+                name=excluded.name, category=excluded.category,
+                ingredients_json=excluded.ingredients_json,
+                concerns_json=excluded.concerns_json,
+                usage_text=excluded.usage_text,
+                price=CASE WHEN products.verified_at IS NULL THEN excluded.price ELSE products.price END,
+                stock=CASE WHEN products.verified_at IS NULL THEN excluded.stock ELSE products.stock END,
+                brand=excluded.brand,
+                source_url=excluded.source_url,
+                skin_types_json=excluded.skin_types_json,
+                routine_step=excluded.routine_step,
+                verified_at=COALESCE(products.verified_at, excluded.verified_at),
+                external_reference=1
+            """,
+            (
+                product_id,
+                retailer_id,
+                name,
+                category,
+                f"Referencia oficial de {brand}.",
+                json.dumps(ingredients, ensure_ascii=False),
+                json.dumps(concerns, ensure_ascii=False),
+                usage,
+                price or 0,
+                1 if stock is not False else 0,
+                brand,
+                source_url,
+                json.dumps(skin_types, ensure_ascii=False),
+                step,
+                VERIFIED_AT,
+            ),
+        )
+
+
 def _ensure_demo_slots(connection: sqlite3.Connection) -> None:
     from datetime import timedelta
 
@@ -460,11 +554,20 @@ def get_active_stores() -> list[dict[str, Any]]:
     with connect() as connection:
         rows = connection.execute(
             """
-            SELECT id, name, city, address, latitude, longitude, verified, demo
+            SELECT id, name, city, address, latitude, longitude, verified, demo,
+                   website, online, retailer_code
             FROM stores WHERE active = 1
             """
         ).fetchall()
-    return [dict(row) | {"verified": bool(row["verified"]), "demo": bool(row["demo"])} for row in rows]
+    return [
+        dict(row)
+        | {
+            "verified": bool(row["verified"]),
+            "demo": bool(row["demo"]),
+            "online": bool(row["online"]),
+        }
+        for row in rows
+    ]
 
 
 def get_store(store_id: str) -> dict[str, Any] | None:
@@ -476,7 +579,9 @@ def get_store_products(store_id: str) -> list[dict[str, Any]]:
         rows = connection.execute(
             """
             SELECT id, name, category, description, ingredients_json,
-                   concerns_json, usage_text, price, currency, stock, demo
+                   concerns_json, usage_text, price, currency, stock, demo,
+                   brand, source_url, skin_types_json, routine_step, verified_at,
+                   external_reference
             FROM products WHERE store_id = ? AND stock > 0
             """,
             (store_id,),
@@ -494,6 +599,12 @@ def get_store_products(store_id: str) -> list[dict[str, Any]]:
             "currency": row["currency"],
             "stock": row["stock"],
             "demo": bool(row["demo"]),
+            "brand": row["brand"],
+            "sourceUrl": row["source_url"],
+            "skinTypes": json.loads(row["skin_types_json"] or "[]"),
+            "routineStep": row["routine_step"],
+            "verifiedAt": row["verified_at"],
+            "externalReference": bool(row["external_reference"]),
         }
         for row in rows
     ]

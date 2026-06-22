@@ -633,8 +633,8 @@
     $("#clinic-grid").innerHTML = stores.map((store) => `
       <article class="clinic-card store-card">
         <div class="clinic-badges">
-          <span class="clinic-badge ${store.demo ? "demo" : ""}">${store.demo ? "Tienda demo" : store.verified ? "Verificada" : "En revisión"}</span>
-          <span class="clinic-distance">${store.distanceKm} km</span>
+          <span class="clinic-badge ${store.demo ? "demo" : ""}">${store.online ? "Tienda en línea" : store.demo ? "Tienda demo" : store.verified ? "Verificada" : "Referencia externa"}</span>
+          <span class="clinic-distance">${store.online ? "Ecuador" : `${store.distanceKm} km`}</span>
         </div>
         <h4>${escapeHtml(store.name)}</h4>
         <p>${escapeHtml(store.address)} · ${escapeHtml(store.city)}</p>
@@ -757,14 +757,25 @@
       const response = await fetch(`${API_BASE}/api/v1/stores/${encodeURIComponent(storeId)}/recommendations?${params}`);
       const payload = await response.json();
       if (!response.ok) throw new Error(payload?.error?.message || "No se pudieron recomendar productos.");
-      $("#product-grid").innerHTML = payload.products.map((product) => `
+      $("#product-grid").innerHTML = `
+        <div class="routine-summary">
+          <span>RUTINA PARA PIEL ${escapeHtml(payload.routine.skinType).toUpperCase()}</span>
+          <h4>${payload.routine.steps.length} pasos esenciales</h4>
+          <p>Mañana: limpieza → tratamiento opcional → hidratación → SPF. Noche: limpieza → tratamiento → hidratación.</p>
+        </div>
+      ` + payload.products.map((product) => `
         <article class="product-card">
-          <small>${escapeHtml(product.category)} · Producto demo</small>
+          <small>${escapeHtml(product.routineStep || product.category)} · ${escapeHtml(product.brand || "")}</small>
           <h4>${escapeHtml(product.name)}</h4>
           <p>${escapeHtml(product.reason)}</p>
           <p><b>Ingredientes:</b> ${product.ingredients.map(escapeHtml).join(", ")}</p>
           <p><b>Uso:</b> ${escapeHtml(product.usage)}</p>
-          <div class="product-meta"><span>${escapeHtml(payload.store.name)}</span><b>$${product.price.toFixed(2)}</b></div>
+          <p class="product-skin-types"><b>Compatible con:</b> ${product.skinTypes.map(escapeHtml).join(", ")}</p>
+          <div class="product-meta">
+            <span>${escapeHtml(payload.store.name)} · verificado ${escapeHtml(product.verifiedAt || "sin fecha")}</span>
+            <b>${product.price > 0 ? `$${product.price.toFixed(2)}` : "Ver precio"}</b>
+          </div>
+          <a class="button button-dark product-link" href="${escapeHtml(product.sourceUrl)}" target="_blank" rel="noopener noreferrer">Ver en tienda oficial ↗</a>
         </article>
       `).join("");
       setReferralStatus(payload.disclaimer);

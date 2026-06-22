@@ -260,6 +260,7 @@ def recommend_products(
     summary: dict[str, Any], products: list[dict[str, Any]]
 ) -> list[dict[str, Any]]:
     metrics = summary.get("metrics", {})
+    skin_type = summary.get("skinType", "Equilibrada")
     concerns: list[str] = []
     mapping = {
         "Hidratación": "hydration",
@@ -276,8 +277,12 @@ def recommend_products(
 
     ranked = []
     for product in products:
+        skin_types = product.get("skinTypes", [])
+        skin_match = skin_type in skin_types or not skin_types
+        if not skin_match:
+            continue
         matches = [concern for concern in product["concerns"] if concern in concerns]
-        score = len(matches) * 10
+        score = len(matches) * 10 + 18
         if product["category"] == "sunscreen":
             score += 12
         if product["category"] == "moisturizer":
@@ -290,8 +295,28 @@ def recommend_products(
                 "reason": _product_reason(product, matches),
             }
         )
-    ranked.sort(key=lambda item: (-item["matchScore"], item["price"]))
-    return ranked[:4]
+    ranked.sort(key=lambda item: (-item["matchScore"], item["price"] or 9999))
+
+    # Build a minimal routine before adding optional treatment products.
+    selected: list[dict[str, Any]] = []
+    for step in ("cleanse", "moisturize", "protect"):
+        candidate = next(
+            (item for item in ranked if item.get("routineStep") == step),
+            None,
+        )
+        if candidate:
+            selected.append(candidate)
+    treatment = next(
+        (
+            item
+            for item in ranked
+            if item.get("routineStep") == "treat" and item not in selected
+        ),
+        None,
+    )
+    if treatment:
+        selected.insert(min(1, len(selected)), treatment)
+    return selected[:4]
 
 
 def _product_reason(product: dict[str, Any], matches: list[str]) -> str:

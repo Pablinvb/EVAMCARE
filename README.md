@@ -58,6 +58,10 @@ en `.env.example`.
   requiere corroboración por síntomas, antecedentes o una alerta crítica.
 - Historial opcional de orientaciones guardado únicamente con consentimiento.
 - Ruta de autocuidado con tiendas demo y productos cosméticos compatibles.
+- Catálogo de referencias oficiales de Dermasoft, Gloria Saltos, Dipaso,
+  Mendieta Beauty y Fybeca.
+- Rutinas completas adaptadas a piel seca, grasa, mixta, equilibrada, sensible
+  y mixta deshidratada.
 - Ruta dermatológica con disponibilidad y solicitud de horario.
 
 ## Endpoints
@@ -86,6 +90,21 @@ después del proceso contractual y documental correspondiente.
 Las recomendaciones de productos son cosméticas y no se muestran cuando el
 cuestionario contiene señales de alerta. Las citas y catálogos incluidos son
 demostrativos hasta integrar disponibilidad e inventario de socios reales.
+
+## Actualizar referencias comerciales
+
+Las fichas incluyen enlace oficial, precio observado y fecha de verificación.
+Para intentar actualizar precio y disponibilidad desde Product JSON-LD:
+
+```powershell
+python scripts/sync_store_catalog.py
+```
+
+El sincronizador conserva el valor curado si una tienda no publica datos
+estructurados. Precio y stock deben confirmarse siempre en la ficha oficial.
+
+La arquitectura y reglas del catálogo están documentadas en
+[`docs/RETAIL_CATALOG.md`](docs/RETAIL_CATALOG.md).
 
 El proceso de incorporación está documentado en
 [`docs/PARTNER_CLINICS.md`](docs/PARTNER_CLINICS.md).
