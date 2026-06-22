@@ -181,6 +181,53 @@ class ApiTests(unittest.TestCase):
         ).json()
         token = analysis["referralToken"]
 
+        # Even visually severe signals must not trigger medical referral when
+        # the user reports no symptoms/history and image quality is adequate.
+        severe_visual_result = {
+            "overall": 35,
+            "skinType": "Mixta",
+            "confidence": 90,
+            "attentionZones": [{"type": "redness"}] * 7,
+            "engine": {"version": "0.5.0"},
+            "metrics": [
+                {"name": "Hidratación", "score": 70, "status": "Estable"},
+                {"name": "Textura", "score": 45, "status": "Atención"},
+                {"name": "Poros", "score": 40, "status": "Prioridad"},
+                {"name": "Imperfecciones", "score": 5, "status": "Prioridad"},
+                {"name": "Pigmentación", "score": 25, "status": "Prioridad"},
+                {"name": "Líneas visibles", "score": 70, "status": "Estable"},
+                {"name": "Enrojecimiento", "score": 5, "status": "Prioridad"},
+                {"name": "Balance sebáceo", "score": 50, "status": "Atención"},
+            ],
+        }
+        severe_visual_token = create_referral_token(severe_visual_result)
+        no_answers = self.client.post(
+            "/api/v1/guidance",
+            json={"referralToken": severe_visual_token, "answers": {}},
+        )
+        self.assertEqual(no_answers.status_code, 200, no_answers.text)
+        self.assertEqual(
+            no_answers.json()["guidance"]["route"], "cosmetic-care"
+        )
+        self.assertFalse(
+            no_answers.json()["guidance"]["clinicalContextPresent"]
+        )
+        self.assertTrue(no_answers.json()["guidance"]["allowProducts"])
+
+        low_quality = self.client.post(
+            "/api/v1/guidance",
+            json={"referralToken": token, "answers": {}},
+        )
+        self.assertEqual(low_quality.status_code, 200)
+        self.assertIn(
+            low_quality.json()["guidance"]["route"],
+            {"cosmetic-care", "repeat-scan"},
+        )
+        self.assertNotIn(
+            low_quality.json()["guidance"]["route"],
+            {"dermatology", "urgent-care"},
+        )
+
         urgent = self.client.post(
             "/api/v1/guidance",
             json={
@@ -217,6 +264,53 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(cosmetic.status_code, 200, cosmetic.text)
         self.assertEqual(cosmetic.json()["guidance"]["route"], "cosmetic-care")
         self.assertTrue(cosmetic.json()["guidance"]["allowProducts"])
+        self.assertEqual(
+            cosmetic.json()["guidance"]["components"]["vision"]["weight"], 60
+        )
+        self.assertEqual(
+            cosmetic.json()["guidance"]["components"]["symptoms"]["weight"], 25
+        )
+        self.assertEqual(
+            cosmetic.json()["guidance"]["components"]["history"]["weight"], 15
+        )
+
+        medium = self.client.post(
+            "/api/v1/guidance",
+            json={
+                "referralToken": safe_token,
+                "answers": {
+                    "itchSeverity": "intense_persistent",
+                    "duration": "over_6_weeks",
+                    "painLevel": "mild",
+                },
+            },
+        )
+        self.assertEqual(medium.status_code, 200, medium.text)
+        self.assertEqual(medium.json()["guidance"]["route"], "dermatology")
+        self.assertEqual(medium.json()["guidance"]["riskLevel"], "medium")
+
+        history_saved = self.client.post(
+            "/api/v1/guidance",
+            headers=self.headers,
+            json={
+                "referralToken": safe_token,
+                "answers": {
+                    "marksChangingOrUnexplained": False,
+                    "familyMelanoma": True,
+                },
+                "saveHistory": True,
+            },
+        )
+        self.assertEqual(history_saved.status_code, 200, history_saved.text)
+        self.assertTrue(history_saved.json()["stored"])
+        history = self.client.get(
+            "/api/v1/guidance-history", headers=self.headers
+        )
+        self.assertEqual(history.status_code, 200)
+        self.assertEqual(len(history.json()["items"]), 1)
+        self.assertFalse(
+            history.json()["items"][0]["answers"]["marksChangingOrUnexplained"]
+        )
 
         stores = self.client.get(
             "/api/v1/stores",

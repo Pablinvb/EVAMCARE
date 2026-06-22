@@ -647,23 +647,46 @@
     if (!lastReferralToken) return;
     const answers = {};
     $$("[data-guidance]").forEach((input) => {
-      answers[input.dataset.guidance] = input.checked;
+      answers[input.dataset.guidance] = input.type === "checkbox"
+        ? input.checked
+        : input.value;
     });
     try {
       const response = await fetch(`${API_BASE}/api/v1/guidance`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ referralToken: lastReferralToken, answers }),
+        headers: {
+          "Content-Type": "application/json",
+          "X-Derma-Session": sessionId,
+        },
+        body: JSON.stringify({
+          referralToken: lastReferralToken,
+          answers,
+          saveHistory: $("#save-guidance-history").checked,
+        }),
       });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload?.error?.message || "No se pudo generar la orientación.");
       const guidance = payload.guidance;
       guidanceRoute = guidance.route;
       $("#guidance-result").classList.add("visible");
+      const components = guidance.components;
       $("#guidance-result").innerHTML = `
-        <h4>${escapeHtml(guidance.title)}</h4>
+        <div class="guidance-score-head">
+          <div><small>NIVEL ${escapeHtml(guidance.riskLevel)}</small><h4>${escapeHtml(guidance.title)}</h4></div>
+          <b>${guidance.riskScore}<span>/100</span></b>
+        </div>
         <p>${escapeHtml(guidance.message)}</p>
-        <div class="guidance-reasons">${guidance.reasons.map((reason) => `<span>${escapeHtml(reason)}</span>`).join("")}</div>`;
+        <div class="risk-components">
+          ${[
+            ["Visión", components.vision],
+            ["Síntomas", components.symptoms],
+            ["Antecedentes", components.history],
+          ].map(([label, component]) => `
+            <div><span>${label} · ${component.weight}%</span><b>${component.contribution}</b><i><em style="width:${component.raw}%"></em></i></div>
+          `).join("")}
+        </div>
+        <div class="guidance-reasons">${guidance.reasons.map((reason) => `<span>${escapeHtml(reason)}</span>`).join("")}</div>
+        <small class="guidance-disclaimer">${escapeHtml(guidance.disclaimer)}${payload.stored ? " Guardada en tu historial." : ""}</small>`;
       $("#route-actions").classList.add("visible");
       $("#find-clinics").style.display = guidance.allowDermatologyBooking ? "inline-flex" : "none";
       $("#find-stores").style.display = guidance.allowProducts ? "inline-flex" : "none";
@@ -875,7 +898,11 @@
     $("#guidance-result").classList.remove("visible");
     $("#guidance-result").innerHTML = "";
     $("#route-actions").classList.remove("visible");
-    $$("[data-guidance]").forEach((input) => { input.checked = false; });
+    $$("[data-guidance]").forEach((input) => {
+      if (input.type === "checkbox") input.checked = false;
+      else input.selectedIndex = 0;
+    });
+    $("#save-guidance-history").checked = false;
     showStage("capture");
   });
 })();

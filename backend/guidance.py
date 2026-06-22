@@ -3,114 +3,257 @@ from __future__ import annotations
 from typing import Any
 
 
-URGENT_FLAGS = {
-    "rapidlyWorsening": "Empeoramiento rápido",
-    "feverOrUnwell": "Fiebre o malestar general",
-    "pusWarmthSwelling": "Secreción, calor o hinchazón",
-    "eyesMouthBlisters": "Ampollas o afectación de ojos o boca",
-}
-
-DERMATOLOGY_FLAGS = {
-    "changingBleedingSpot": "Mancha o lesión nueva, cambiante o con sangrado",
-    "notHealing": "Lesión que no cicatriza",
-    "deepPainfulLesions": "Lesiones profundas o dolorosas",
-    "scarring": "Cicatrices o marcas persistentes",
-    "persistentConcern": "Problema persistente o que causa preocupación",
-}
-
-
 def evaluate_guidance(
-    summary: dict[str, Any], answers: dict[str, bool]
+    summary: dict[str, Any], answers: dict[str, Any]
 ) -> dict[str, Any]:
-    urgent_reasons = [
-        label for key, label in URGENT_FLAGS.items() if answers.get(key, False)
-    ]
-    dermatology_reasons = [
-        label for key, label in DERMATOLOGY_FLAGS.items() if answers.get(key, False)
-    ]
-    metrics = summary.get("metrics", {})
-    imperfection_score = metrics.get("Imperfecciones", 100)
-    redness_score = metrics.get("Enrojecimiento", 100)
-    confidence = summary.get("confidence", 0)
+    """Return a transparent orientation score, not a medical diagnosis.
 
-    visual_reasons: list[str] = []
-    if imperfection_score <= 35 and summary.get("attentionZoneCount", 0) >= 3:
-        visual_reasons.append(
-            "Se observaron múltiples variaciones visibles asociadas a imperfecciones"
+    The requested 60/25/15 architecture is preserved, but the unvalidated
+    computer-vision component is capped so it cannot create a high-priority
+    route by itself. Critical self-reported warning signs always override the
+    numeric score.
+    """
+
+    critical_reasons = _critical_reasons(answers)
+    symptom_reasons, symptom_score = _symptom_score(answers)
+    history_reasons, history_score = _history_score(answers)
+    visual_reasons, visual_score = _visual_score(summary)
+
+    weighted = {
+        "vision": round(visual_score * 0.60, 1),
+        "symptoms": round(symptom_score * 0.25, 1),
+        "history": round(history_score * 0.15, 1),
+    }
+    total = round(sum(weighted.values()), 1)
+
+    # Prior skin cancer or immunosuppression lowers the consultation threshold,
+    # but neither is labelled an emergency in isolation.
+    elevated_history = answers.get("personalSkinCancer", False) or answers.get(
+        "immunosuppressed", False
+    )
+    # Computer vision is supportive evidence only. A medical route always
+    # requires at least one symptom/history signal or a critical override.
+    has_clinical_context = (
+        bool(critical_reasons) or symptom_score >= 20 or history_score > 0
+    )
+
+    if critical_reasons:
+        route = "urgent-care"
+        level = "high"
+        title = "Consulta dermatológica prioritaria"
+        message = (
+            "Tus respuestas incluyen una señal de alerta que necesita valoración "
+            "profesional pronta. Esta orientación no identifica la causa. Si hay "
+            "dificultad para respirar o hinchazón de labios o lengua, utiliza los "
+            "servicios de emergencia."
         )
-    if redness_score <= 30 and summary.get("attentionZoneCount", 0) >= 4:
-        visual_reasons.append("Se observó enrojecimiento visual extendido")
+    elif has_clinical_context and (
+        total >= 65 or (elevated_history and symptom_score >= 35)
+    ):
+        route = "urgent-care"
+        level = "high"
+        title = "Consulta dermatológica prioritaria"
+        message = (
+            "La combinación de síntomas, antecedentes y señales visuales supera "
+            "el umbral de prioridad. Solicita una valoración profesional pronta."
+        )
+    elif has_clinical_context and (
+        total >= 35 or symptom_score >= 40 or elevated_history
+    ):
+        route = "dermatology"
+        level = "medium"
+        title = "Consulta dermatológica recomendada"
+        message = (
+            "La combinación de duración, molestias, antecedentes o señales "
+            "visuales justifica una consulta. No significa que exista una "
+            "enfermedad específica."
+        )
+    elif summary.get("confidence", 0) < 45:
+        route = "repeat-scan"
+        level = "quality"
+        title = "Repite el escaneo"
+        message = (
+            "La captura no tiene calidad suficiente para orientar productos. "
+            "Repítela con luz frontal y mayor nitidez."
+        )
+    else:
+        route = "cosmetic-care"
+        level = "low"
+        title = "Rutina cosmética personalizada"
+        if visual_score >= 45:
+            message = (
+                "La fotografía muestra variaciones visuales, pero no reportaste "
+                "síntomas ni antecedentes que justifiquen una derivación. Puedes "
+                "comenzar con autocuidado cosmético y vigilar la evolución. Consulta "
+                "si aparecen cambios, dolor, sangrado, picazón o falta de mejoría."
+            )
+        else:
+            message = (
+                "No reportaste señales de alerta. Puedes comenzar con autocuidado "
+                "cosmético y consultar si aparecen cambios, dolor, sangrado, "
+                "picazón intensa o falta de mejoría."
+            )
 
-    if urgent_reasons:
-        return {
-            "route": "urgent-care",
-            "priority": "prompt",
-            "reasons": urgent_reasons,
-            "title": "Busca valoración médica pronta",
-            "message": (
-                "Tus respuestas incluyen señales que no deben orientarse únicamente "
-                "con productos cosméticos. Busca atención médica pronta; si presentas "
-                "dificultad para respirar o hinchazón de labios o lengua, utiliza "
-                "servicios de emergencia."
-            ),
-            "allowProducts": False,
-            "allowDermatologyBooking": True,
-        }
+    reasons = critical_reasons or (
+        symptom_reasons + history_reasons + visual_reasons
+    )
+    if not reasons:
+        reasons = _cosmetic_priorities(summary)
 
-    if dermatology_reasons or visual_reasons:
-        return {
-            "route": "dermatology",
-            "priority": "recommended",
-            "reasons": dermatology_reasons + visual_reasons,
-            "title": "Te conviene consultar con dermatología",
-            "message": (
-                "La recomendación se basa en tus respuestas y señales visibles; "
-                "no constituye un diagnóstico. Puedes revisar centros cercanos "
-                "y solicitar una cita."
-            ),
-            "allowProducts": False,
-            "allowDermatologyBooking": True,
-        }
+    decision_score = max(total, 85.0) if critical_reasons else total
+    return {
+        "route": route,
+        "riskLevel": level,
+        "riskScore": decision_score,
+        "baseScore": total,
+        "components": {
+            "vision": {
+                "raw": round(visual_score, 1),
+                "weight": 60,
+                "contribution": weighted["vision"],
+            },
+            "symptoms": {
+                "raw": round(symptom_score, 1),
+                "weight": 25,
+                "contribution": weighted["symptoms"],
+            },
+            "history": {
+                "raw": round(history_score, 1),
+                "weight": 15,
+                "contribution": weighted["history"],
+            },
+        },
+        "criticalOverride": bool(critical_reasons),
+        "clinicalContextPresent": has_clinical_context,
+        "reasons": reasons,
+        "title": title,
+        "message": message,
+        "allowProducts": route == "cosmetic-care",
+        "allowDermatologyBooking": route in {"dermatology", "urgent-care"},
+        "method": "orientation-score-v2",
+        "disclaimer": (
+            "Puntuación orientativa no validada clínicamente; no diagnostica ni "
+            "descarta enfermedades."
+        ),
+    }
 
-    if confidence < 45:
-        return {
-            "route": "repeat-scan",
-            "priority": "quality",
-            "reasons": ["La fotografía no tuvo confianza suficiente"],
-            "title": "Repite el escaneo",
-            "message": (
-                "La calidad no permite orientar productos ni consulta con suficiente "
-                "consistencia. Repite la captura con luz frontal y mayor nitidez."
-            ),
-            "allowProducts": False,
-            "allowDermatologyBooking": True,
-        }
 
-    cosmetic_priorities = [
+def _critical_reasons(answers: dict[str, Any]) -> list[str]:
+    reasons = []
+    if answers.get("changingBleedingSpot"):
+        reasons.append("Lesión nueva o cambiante que sangra")
+    if answers.get("notHealing"):
+        reasons.append("Lesión que no cicatriza o reaparece")
+    if answers.get("eyesMouthBlisters"):
+        reasons.append("Ampollas o afectación de ojos o boca")
+    if answers.get("rapidlyWorsening"):
+        reasons.append("Empeoramiento rápido")
+    if answers.get("feverOrUnwell") and (
+        answers.get("inflammation")
+        or answers.get("discharge")
+        or answers.get("eyesMouthBlisters")
+    ):
+        reasons.append("Fiebre o malestar junto con manifestaciones cutáneas")
+    return reasons
+
+
+def _symptom_score(answers: dict[str, Any]) -> tuple[list[str], float]:
+    points = 0.0
+    reasons: list[str] = []
+
+    itch = answers.get("itchSeverity", "none")
+    if itch == "intense_persistent":
+        points += 45
+        reasons.append("Picazón intensa o persistente")
+    elif itch == "mild":
+        points += 12
+
+    duration = answers.get("duration", "under_2_weeks")
+    if duration == "over_6_weeks":
+        points += 40
+        reasons.append("Más de 6 semanas sin mejorar")
+    elif duration == "2_to_6_weeks":
+        points += 15
+
+    pain = answers.get("painLevel", "none")
+    if pain == "moderate_severe":
+        points += 45
+        reasons.append("Dolor moderado o intenso")
+    elif pain == "mild":
+        points += 12
+
+    for key, label, value in [
+        ("inflammation", "Inflamación importante", 25),
+        ("discharge", "Secreción o pus", 40),
+        (
+            "marksChangingOrUnexplained",
+            "Marcas recientes sin causa clara o que cambian/crecen/molestan",
+            30,
+        ),
+        ("persistentConcern", "Problema que genera preocupación importante", 15),
+    ]:
+        if answers.get(key):
+            points += value
+            reasons.append(label)
+
+    return reasons, min(100.0, points)
+
+
+def _history_score(answers: dict[str, Any]) -> tuple[list[str], float]:
+    points = 0.0
+    reasons: list[str] = []
+    if answers.get("personalSkinCancer"):
+        points += 100
+        reasons.append("Antecedente personal de cáncer o lesión precancerosa")
+    if answers.get("familyMelanoma"):
+        points += 40
+        reasons.append("Antecedente familiar de melanoma o cáncer de piel")
+    if answers.get("immunosuppressed"):
+        points += 70
+        reasons.append("Condición o tratamiento que afecta el sistema inmunológico")
+    return reasons, min(100.0, points)
+
+
+def _visual_score(summary: dict[str, Any]) -> tuple[list[str], float]:
+    metrics = summary.get("metrics", {})
+    imperfection_need = 100 - metrics.get("Imperfecciones", 100)
+    redness_need = 100 - metrics.get("Enrojecimiento", 100)
+    pigmentation_need = 100 - metrics.get("Pigmentación", 100)
+    zones = min(100, summary.get("attentionZoneCount", 0) * 12)
+    raw = (
+        imperfection_need * 0.35
+        + redness_need * 0.30
+        + pigmentation_need * 0.15
+        + zones * 0.20
+    )
+    # The current image model is not clinically validated. It can support a
+    # recommendation but cannot independently create a high-risk route.
+    score = min(50.0, raw)
+    reasons = []
+    if imperfection_need >= 65 and zones >= 36:
+        reasons.append("Variaciones visibles compatibles con imperfecciones extensas")
+    if redness_need >= 65 and zones >= 36:
+        reasons.append("Enrojecimiento visual extendido")
+    if pigmentation_need >= 65 and zones >= 24:
+        reasons.append("Variación de tono localizada")
+    return reasons, score
+
+
+def _cosmetic_priorities(summary: dict[str, Any]) -> list[str]:
+    allowed = {
+        "Hidratación",
+        "Textura",
+        "Poros",
+        "Pigmentación",
+        "Líneas visibles",
+        "Balance sebáceo",
+    }
+    priorities = [
         item["name"]
         for item in summary.get("priorities", [])
-        if item["name"] in {
-            "Hidratación",
-            "Textura",
-            "Poros",
-            "Pigmentación",
-            "Líneas visibles",
-            "Balance sebáceo",
-        }
+        if item["name"] in allowed
     ]
-    return {
-        "route": "cosmetic-care",
-        "priority": "routine",
-        "reasons": cosmetic_priorities or ["Mantenimiento cosmético general"],
-        "title": "Puedes empezar con una rutina cosmética",
-        "message": (
-            "No indicaste señales de alerta. Puedes explorar una rutina sencilla "
-            "y productos cosméticos cercanos. Consulta si aparece dolor, sangrado, "
-            "cambio rápido o si el problema persiste."
-        ),
-        "allowProducts": True,
-        "allowDermatologyBooking": False,
-    }
+    return priorities or ["Mantenimiento cosmético general"]
 
 
 def recommend_products(

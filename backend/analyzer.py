@@ -124,7 +124,7 @@ class SkinAnalyzer:
             "warnings": warnings,
             "engine": {
                 "name": "DermaScan Classical Vision",
-                "version": "0.4.0",
+                "version": "0.5.1",
                 "medicalDevice": False,
             },
         }

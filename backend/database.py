@@ -135,6 +135,25 @@ def initialize_database() -> None:
             )
             """
         )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS guidance_assessments (
+                id TEXT PRIMARY KEY,
+                session_id TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                risk_level TEXT NOT NULL,
+                risk_score REAL NOT NULL,
+                route TEXT NOT NULL,
+                answers_json TEXT NOT NULL,
+                result_json TEXT NOT NULL,
+                consent_history INTEGER NOT NULL
+            )
+            """
+        )
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_guidance_session_created "
+            "ON guidance_assessments(session_id, created_at DESC)"
+        )
         _seed_demo_clinics(connection)
         _seed_demo_stores(connection)
         _ensure_demo_slots(connection)
@@ -210,11 +229,73 @@ def delete_analysis(session_id: str, analysis_id: str) -> bool:
 
 def delete_session_history(session_id: str) -> int:
     with connect() as connection:
+        guidance_deleted = connection.execute(
+            "DELETE FROM guidance_assessments WHERE session_id = ?",
+            (session_id,),
+        ).rowcount
         cursor = connection.execute(
             "DELETE FROM analyses WHERE session_id = ?",
             (session_id,),
         )
-    return cursor.rowcount
+    return cursor.rowcount + guidance_deleted
+
+
+def save_guidance_assessment(
+    session_id: str,
+    answers: dict[str, Any],
+    result: dict[str, Any],
+) -> tuple[str, str]:
+    assessment_id = str(uuid4())
+    created_at = datetime.now(timezone.utc).isoformat()
+    with connect() as connection:
+        connection.execute(
+            """
+            INSERT INTO guidance_assessments (
+                id, session_id, created_at, risk_level, risk_score, route,
+                answers_json, result_json, consent_history
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)
+            """,
+            (
+                assessment_id,
+                session_id,
+                created_at,
+                result["riskLevel"],
+                result["riskScore"],
+                result["route"],
+                json.dumps(answers, ensure_ascii=False, separators=(",", ":")),
+                json.dumps(result, ensure_ascii=False, separators=(",", ":")),
+            ),
+        )
+    return assessment_id, created_at
+
+
+def list_guidance_assessments(
+    session_id: str, limit: int = 20
+) -> list[dict[str, Any]]:
+    with connect() as connection:
+        rows = connection.execute(
+            """
+            SELECT id, created_at, risk_level, risk_score, route,
+                   answers_json, result_json
+            FROM guidance_assessments
+            WHERE session_id = ?
+            ORDER BY created_at DESC
+            LIMIT ?
+            """,
+            (session_id, limit),
+        ).fetchall()
+    return [
+        {
+            "id": row["id"],
+            "createdAt": row["created_at"],
+            "riskLevel": row["risk_level"],
+            "riskScore": row["risk_score"],
+            "route": row["route"],
+            "answers": json.loads(row["answers_json"]),
+            "result": json.loads(row["result_json"]),
+        }
+        for row in rows
+    ]
 
 
 def _seed_demo_clinics(connection: sqlite3.Connection) -> None:

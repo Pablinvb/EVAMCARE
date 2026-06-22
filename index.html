@@ -280,15 +280,32 @@
               </div>
             </div>
             <div class="guidance-questions" id="guidance-questions">
-              <label><input type="checkbox" data-guidance="changingBleedingSpot" /> ¿Tienes una mancha o lesión nueva, cambiante o que sangra?</label>
-              <label><input type="checkbox" data-guidance="notHealing" /> ¿Hay una lesión que no cicatriza?</label>
-              <label><input type="checkbox" data-guidance="deepPainfulLesions" /> ¿Tienes lesiones profundas o dolorosas?</label>
-              <label><input type="checkbox" data-guidance="scarring" /> ¿Hay cicatrices o marcas persistentes?</label>
-              <label><input type="checkbox" data-guidance="persistentConcern" /> ¿El problema persiste o te preocupa especialmente?</label>
-              <label><input type="checkbox" data-guidance="rapidlyWorsening" /> ¿Está empeorando rápidamente?</label>
-              <label><input type="checkbox" data-guidance="feverOrUnwell" /> ¿Tienes fiebre o malestar general?</label>
-              <label><input type="checkbox" data-guidance="pusWarmthSwelling" /> ¿Hay secreción, calor o hinchazón?</label>
-              <label><input type="checkbox" data-guidance="eyesMouthBlisters" /> ¿Hay ampollas o afectación de ojos o boca?</label>
+              <div class="guidance-group">
+                <h4>Síntomas y evolución</h4>
+                <label><span>Picazón</span><select data-guidance="itchSeverity"><option value="none">Sin picazón</option><option value="mild">Leve u ocasional</option><option value="intense_persistent">Intensa o persistente</option></select></label>
+                <label><span>Duración del problema</span><select data-guidance="duration"><option value="under_2_weeks">Menos de 2 semanas</option><option value="2_to_6_weeks">Entre 2 y 6 semanas</option><option value="over_6_weeks">Más de 6 semanas sin mejorar</option></select></label>
+                <label><span>Dolor</span><select data-guidance="painLevel"><option value="none">Sin dolor</option><option value="mild">Leve</option><option value="moderate_severe">Moderado o intenso</option></select></label>
+                <label class="check-question"><input type="checkbox" data-guidance="inflammation" /> Inflamación importante</label>
+                <label class="check-question"><input type="checkbox" data-guidance="discharge" /> Secreción o pus</label>
+                <label class="check-question"><input type="checkbox" data-guidance="persistentConcern" /> El problema persiste o te preocupa especialmente</label>
+              </div>
+              <div class="guidance-group">
+                <h4>Cambios que requieren atención</h4>
+                <label class="check-question"><input type="checkbox" data-guidance="changingBleedingSpot" /> Mancha o lesión nueva, cambiante o que sangra</label>
+                <label class="check-question"><input type="checkbox" data-guidance="notHealing" /> Lesión que no cicatriza o reaparece</label>
+                <label class="check-question"><input type="checkbox" data-guidance="marksChangingOrUnexplained" /> Cicatrices o marcas que cambian, crecen, molestan o aparecieron sin causa clara</label>
+                <label class="check-question"><input type="checkbox" data-guidance="rapidlyWorsening" /> Empeoramiento rápido</label>
+                <label class="check-question"><input type="checkbox" data-guidance="feverOrUnwell" /> Fiebre o malestar general</label>
+                <label class="check-question"><input type="checkbox" data-guidance="eyesMouthBlisters" /> Ampollas o afectación de ojos o boca</label>
+              </div>
+              <div class="guidance-group">
+                <h4>Antecedentes</h4>
+                <label class="check-question"><input type="checkbox" data-guidance="personalSkinCancer" /> Antecedente personal de cáncer de piel o lesión precancerosa</label>
+                <label class="check-question"><input type="checkbox" data-guidance="familyMelanoma" /> Familiares con melanoma o cáncer de piel</label>
+                <label class="check-question"><input type="checkbox" data-guidance="immunosuppressed" /> Condición o tratamiento que afecta el sistema inmunológico</label>
+                <p>Ejemplos: trasplante, quimioterapia, VIH o medicamentos inmunosupresores.</p>
+                <label class="history-guidance-consent"><input id="save-guidance-history" type="checkbox" /> Guardar esta orientación en mi historial</label>
+              </div>
             </div>
             <button class="button button-primary guidance-button" id="get-guidance">
               Orientar mi siguiente paso <span>↗</span>

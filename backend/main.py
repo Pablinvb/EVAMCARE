@@ -6,7 +6,7 @@ import time
 from math import asin, cos, radians, sin, sqrt
 from collections import defaultdict, deque
 from contextlib import asynccontextmanager
-from typing import Annotated
+from typing import Annotated, Literal
 
 import cv2
 import numpy as np
@@ -47,8 +47,10 @@ from .database import (
     get_store_products,
     initialize_database,
     list_partner_leads,
+    list_guidance_assessments,
     list_analyses,
     save_analysis,
+    save_guidance_assessment,
     save_lead,
 )
 from .referrals import create_referral_token, verify_referral_token
@@ -78,18 +80,25 @@ class LeadRequest(BaseModel):
 class GuidanceAnswers(BaseModel):
     rapidlyWorsening: bool = False
     feverOrUnwell: bool = False
-    pusWarmthSwelling: bool = False
     eyesMouthBlisters: bool = False
     changingBleedingSpot: bool = False
     notHealing: bool = False
-    deepPainfulLesions: bool = False
-    scarring: bool = False
+    marksChangingOrUnexplained: bool = False
     persistentConcern: bool = False
+    itchSeverity: Literal["none", "mild", "intense_persistent"] = "none"
+    duration: Literal["under_2_weeks", "2_to_6_weeks", "over_6_weeks"] = "under_2_weeks"
+    painLevel: Literal["none", "mild", "moderate_severe"] = "none"
+    inflammation: bool = False
+    discharge: bool = False
+    personalSkinCancer: bool = False
+    familyMelanoma: bool = False
+    immunosuppressed: bool = False
 
 
 class GuidanceRequest(BaseModel):
     referralToken: str = Field(min_length=20, max_length=5000)
     answers: GuidanceAnswers
+    saveHistory: bool = False
 
 
 class AppointmentRequest(LeadRequest):
@@ -292,15 +301,40 @@ def clinics(
 
 
 @app.post("/api/v1/guidance")
-def guidance(request: GuidanceRequest) -> dict:
+def guidance(
+    request: GuidanceRequest,
+    x_derma_session: Annotated[str | None, Header()] = None,
+) -> dict:
     try:
         summary = verify_referral_token(request.referralToken)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    result = evaluate_guidance(summary, request.answers.model_dump())
+    assessment_id = None
+    created_at = None
+    if request.saveHistory:
+        session_id = validate_session(x_derma_session)
+        assessment_id, created_at = save_guidance_assessment(
+            session_id,
+            request.answers.model_dump(),
+            result,
+        )
     return {
         "ok": True,
-        "guidance": evaluate_guidance(summary, request.answers.model_dump()),
+        "guidance": result,
+        "stored": request.saveHistory,
+        "assessmentId": assessment_id,
+        "createdAt": created_at,
     }
+
+
+@app.get("/api/v1/guidance-history")
+def guidance_history(
+    x_derma_session: Annotated[str | None, Header()] = None,
+    limit: Annotated[int, Query(ge=1, le=50)] = 20,
+) -> dict:
+    session_id = validate_session(x_derma_session)
+    return {"ok": True, "items": list_guidance_assessments(session_id, limit)}
 
 
 @app.get("/api/v1/stores")

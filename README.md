@@ -52,6 +52,11 @@ en `.env.example`.
 - Bandeja de leads para socios protegida mediante credencial.
 - Orientación posterior al escaneo mediante señales declaradas por el usuario,
   confianza fotográfica y hallazgos visuales.
+- Puntuación explicable en tres componentes: visión 60%, síntomas 25% y
+  antecedentes 15%, con alertas críticas que prevalecen sobre la suma.
+- La visión artificial no puede generar por sí sola una derivación médica:
+  requiere corroboración por síntomas, antecedentes o una alerta crítica.
+- Historial opcional de orientaciones guardado únicamente con consentimiento.
 - Ruta de autocuidado con tiendas demo y productos cosméticos compatibles.
 - Ruta dermatológica con disponibilidad y solicitud de horario.
 
@@ -68,6 +73,7 @@ en `.env.example`.
 - `DELETE /api/v1/leads/{lead_id}`
 - `GET /api/v1/partner/leads`
 - `POST /api/v1/guidance`
+- `GET /api/v1/guidance-history`
 - `GET /api/v1/stores`
 - `GET /api/v1/stores/{store_id}/recommendations`
 - `GET /api/v1/clinics/{clinic_id}/availability`
