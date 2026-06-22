@@ -23,6 +23,7 @@ body {
   font-family: "DM Sans", system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
 }
+.deployment-banner{position:relative;z-index:60;padding:9px 18px;background:#fff0bf;color:#624d16;text-align:center;font-size:10px;font-weight:700}.deployment-banner+ .noise + .topbar{ }
 button, input { font: inherit; }
 button, label { -webkit-tap-highlight-color: transparent; }
 button:focus-visible, a:focus-visible, label:focus-visible {

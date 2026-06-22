@@ -14,7 +14,10 @@
   const analyzeButton = $("#analyze-photo");
   const cameraPlaceholder = $("#camera-placeholder");
   const cameraStatus = $("#camera-status");
-  const API_BASE = location.port === "8000" ? "" : "http://127.0.0.1:8000";
+  const IS_LOCAL = ["127.0.0.1", "localhost"].includes(location.hostname);
+  const IS_STATIC_DEPLOYMENT = !IS_LOCAL;
+  const API_BASE = window.DERMASCAN_API_URL
+    || (location.port === "8000" ? "" : IS_LOCAL ? "http://127.0.0.1:8000" : "");
   const sessionId = getSessionId();
   let stream = null;
   let imageReady = false;
@@ -24,6 +27,10 @@
   let userLocation = null;
   let selectedClinic = null;
   let guidanceRoute = null;
+
+  if (IS_STATIC_DEPLOYMENT) {
+    $("#deployment-banner").hidden = false;
+  }
 
   const stages = {
     capture: $("#stage-capture"),
@@ -61,7 +68,9 @@
       const health = await response.json();
       if (!imageReady) cameraStatus.textContent = `Motor ${health.version} conectado`;
     } catch {
-      cameraStatus.textContent = "Backend desconectado · inicia run_backend.ps1";
+      cameraStatus.textContent = IS_STATIC_DEPLOYMENT
+        ? "Demo pública · análisis local disponible"
+        : "Backend desconectado · inicia run_backend.ps1";
     }
   }
 
@@ -405,13 +414,36 @@
         body: form,
       });
     } catch {
-      throw new Error("No se pudo conectar con el backend. Ejecuta run_backend.ps1.");
+      return localFallbackAnalysis(canvas);
     }
     const payload = await response.json().catch(() => null);
     if (!response.ok) {
+      if (IS_STATIC_DEPLOYMENT && [404, 405].includes(response.status)) {
+        return localFallbackAnalysis(canvas);
+      }
       throw new Error(payload?.error?.message || "El backend rechazó la imagen.");
     }
     return payload;
+  }
+
+  function localFallbackAnalysis(canvas) {
+    const result = analyzeImage(canvas);
+    result.warnings = [
+      "Resultado generado localmente en la demo pública. Las funciones conectadas al backend no están disponibles.",
+    ];
+    result.attentionZones = [];
+    result.attentionMap = {
+      derivedFromImage: false,
+      coordinateSpace: "none",
+      method: "static-demo-fallback",
+      zoneCount: 0,
+    };
+    return {
+      ok: true,
+      referralToken: null,
+      result,
+      staticDemo: true,
+    };
   }
 
   function renderResults(result) {
@@ -644,7 +676,13 @@
   }
 
   $("#get-guidance").addEventListener("click", async () => {
-    if (!lastReferralToken) return;
+    if (!lastReferralToken) {
+      setReferralStatus(
+        "La orientación, tiendas y citas requieren conectar el backend público.",
+        true,
+      );
+      return;
+    }
     const answers = {};
     $$("[data-guidance]").forEach((input) => {
       answers[input.dataset.guidance] = input.type === "checkbox"
