@@ -6,6 +6,7 @@ import time
 from math import asin, cos, radians, sin, sqrt
 from collections import defaultdict, deque
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 from typing import Annotated, Literal
 
 import cv2
@@ -46,12 +47,16 @@ from .database import (
     get_store,
     get_store_products,
     initialize_database,
+    create_partner_slots,
+    list_partner_appointments,
     list_partner_leads,
     list_guidance_assessments,
     list_analyses,
     save_analysis,
     save_guidance_assessment,
     save_lead,
+    update_partner_appointment,
+    upsert_partner_clinic,
 )
 from .referrals import create_referral_token, verify_referral_token
 
@@ -105,6 +110,26 @@ class AppointmentRequest(LeadRequest):
     slotId: str = Field(min_length=5, max_length=120)
 
 
+class PartnerClinicRequest(BaseModel):
+    id: str = Field(pattern=r"^[a-z0-9][a-z0-9-]{2,79}$")
+    name: str = Field(min_length=3, max_length=160)
+    city: str = Field(min_length=2, max_length=100)
+    address: str = Field(min_length=5, max_length=240)
+    latitude: float = Field(ge=-90, le=90)
+    longitude: float = Field(ge=-180, le=180)
+    phone: str | None = Field(default=None, max_length=30)
+    whatsapp: str | None = Field(default=None, max_length=30)
+    services: list[str] = Field(min_length=1, max_length=12)
+
+
+class PartnerSlotsRequest(BaseModel):
+    startsAt: list[datetime] = Field(min_length=1, max_length=60)
+
+
+class PartnerAppointmentStatusRequest(BaseModel):
+    status: Literal["confirmed", "completed", "cancelled", "no-show"]
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     initialize_database()
@@ -124,8 +149,8 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=CORS_ORIGINS,
     allow_credentials=False,
-    allow_methods=["GET", "POST", "DELETE"],
-    allow_headers=["Content-Type", "X-Derma-Session"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
+    allow_headers=["Content-Type", "X-Derma-Session", "X-Partner-Key"],
 )
 
 
@@ -574,6 +599,84 @@ def hmac_compare(value_a: str, value_b: str) -> bool:
     return hmac.compare_digest(value_a.encode("utf-8"), value_b.encode("utf-8"))
 
 
+def require_partner_key(value: str | None) -> None:
+    if not value or not hmac_compare(value, PARTNER_API_KEY):
+        raise HTTPException(status_code=401, detail="Credencial de socio inválida.")
+
+
+@app.put("/api/v1/partner/clinics")
+def save_partner_clinic(
+    request: PartnerClinicRequest,
+    x_partner_key: Annotated[str | None, Header()] = None,
+) -> dict:
+    require_partner_key(x_partner_key)
+    clinic = request.model_dump()
+    clinic["services"] = [
+        service.strip() for service in clinic["services"] if service.strip()
+    ]
+    if not clinic["services"]:
+        raise HTTPException(status_code=400, detail="Incluye al menos un servicio.")
+    upsert_partner_clinic(clinic)
+    return {"ok": True, "clinic": get_clinic(request.id)}
+
+
+@app.post("/api/v1/partner/clinics/{clinic_id}/availability", status_code=201)
+def add_partner_availability(
+    clinic_id: str,
+    request: PartnerSlotsRequest,
+    x_partner_key: Annotated[str | None, Header()] = None,
+) -> dict:
+    require_partner_key(x_partner_key)
+    clinic = get_clinic(clinic_id)
+    if not clinic:
+        raise HTTPException(status_code=404, detail="Centro no encontrado.")
+    now = datetime.now(timezone.utc)
+    starts_at_values: list[str] = []
+    for value in request.startsAt:
+        normalized = value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+        normalized = normalized.astimezone(timezone.utc)
+        if normalized <= now:
+            raise HTTPException(
+                status_code=400,
+                detail="Todos los horarios deben estar en el futuro.",
+            )
+        starts_at_values.append(normalized.isoformat())
+    return {
+        "ok": True,
+        "clinicId": clinic_id,
+        "items": create_partner_slots(clinic_id, starts_at_values),
+    }
+
+
+@app.get("/api/v1/partner/appointments")
+def partner_appointments(
+    clinic_id: Annotated[str, Query(min_length=3, max_length=80)],
+    x_partner_key: Annotated[str | None, Header()] = None,
+    limit: Annotated[int, Query(ge=1, le=100)] = 50,
+) -> dict:
+    require_partner_key(x_partner_key)
+    if not get_clinic(clinic_id):
+        raise HTTPException(status_code=404, detail="Centro no encontrado.")
+    return {"ok": True, "items": list_partner_appointments(clinic_id, limit)}
+
+
+@app.patch("/api/v1/partner/appointments/{appointment_id}")
+def change_partner_appointment_status(
+    appointment_id: str,
+    request: PartnerAppointmentStatusRequest,
+    clinic_id: Annotated[str, Query(min_length=3, max_length=80)],
+    x_partner_key: Annotated[str | None, Header()] = None,
+) -> dict:
+    require_partner_key(x_partner_key)
+    if not update_partner_appointment(clinic_id, appointment_id, request.status):
+        raise HTTPException(status_code=404, detail="Cita no encontrada.")
+    return {
+        "ok": True,
+        "appointmentId": appointment_id,
+        "status": request.status,
+    }
+
+
 @app.get("/api/v1/history")
 def history(
     x_derma_session: Annotated[str | None, Header()] = None,
@@ -620,3 +723,8 @@ def frontend_styles() -> FileResponse:
 @app.get("/app.js", include_in_schema=False)
 def frontend_script() -> FileResponse:
     return FileResponse(PROJECT_ROOT / "app.js", media_type="text/javascript")
+
+
+@app.get("/config.js", include_in_schema=False)
+def frontend_config() -> FileResponse:
+    return FileResponse(PROJECT_ROOT / "config.js", media_type="text/javascript")

@@ -624,6 +624,120 @@ def get_available_slots(clinic_id: str, limit: int = 20) -> list[dict[str, Any]]
     return [{"id": row["id"], "startsAt": row["starts_at"]} for row in rows]
 
 
+def upsert_partner_clinic(clinic: dict[str, Any]) -> None:
+    with connect() as connection:
+        connection.execute(
+            """
+            INSERT INTO clinics (
+                id, name, city, address, latitude, longitude, phone, whatsapp,
+                services_json, verified, demo, active
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 0, 1)
+            ON CONFLICT(id) DO UPDATE SET
+                name=excluded.name,
+                city=excluded.city,
+                address=excluded.address,
+                latitude=excluded.latitude,
+                longitude=excluded.longitude,
+                phone=excluded.phone,
+                whatsapp=excluded.whatsapp,
+                services_json=excluded.services_json,
+                verified=1,
+                demo=0,
+                active=1
+            """,
+            (
+                clinic["id"],
+                clinic["name"],
+                clinic["city"],
+                clinic["address"],
+                clinic["latitude"],
+                clinic["longitude"],
+                clinic.get("phone"),
+                clinic.get("whatsapp"),
+                json.dumps(clinic["services"], ensure_ascii=False),
+            ),
+        )
+
+
+def create_partner_slots(clinic_id: str, starts_at_values: list[str]) -> list[dict[str, Any]]:
+    created: list[dict[str, Any]] = []
+    with connect() as connection:
+        for starts_at in starts_at_values:
+            slot_id = f"{clinic_id}-{uuid4().hex[:16]}"
+            connection.execute(
+                """
+                INSERT INTO appointment_slots (id, clinic_id, starts_at, available)
+                VALUES (?, ?, ?, 1)
+                """,
+                (slot_id, clinic_id, starts_at),
+            )
+            created.append({"id": slot_id, "startsAt": starts_at})
+    return created
+
+
+def list_partner_appointments(clinic_id: str, limit: int = 50) -> list[dict[str, Any]]:
+    with connect() as connection:
+        rows = connection.execute(
+            """
+            SELECT a.id, a.created_at, a.status, s.starts_at, l.id AS lead_id,
+                   l.full_name, l.phone, l.email, l.preferred_channel
+            FROM appointments a
+            JOIN appointment_slots s ON s.id = a.slot_id
+            JOIN leads l ON l.id = a.lead_id
+            WHERE a.clinic_id = ?
+            ORDER BY s.starts_at
+            LIMIT ?
+            """,
+            (clinic_id, limit),
+        ).fetchall()
+    return [
+        {
+            "id": row["id"],
+            "leadId": row["lead_id"],
+            "createdAt": row["created_at"],
+            "startsAt": row["starts_at"],
+            "status": row["status"],
+            "fullName": row["full_name"],
+            "phone": row["phone"],
+            "email": row["email"],
+            "preferredChannel": row["preferred_channel"],
+        }
+        for row in rows
+    ]
+
+
+def update_partner_appointment(
+    clinic_id: str, appointment_id: str, status: str
+) -> bool:
+    with connect() as connection:
+        appointment = connection.execute(
+            """
+            SELECT slot_id FROM appointments
+            WHERE id = ? AND clinic_id = ?
+            """,
+            (appointment_id, clinic_id),
+        ).fetchone()
+        if not appointment:
+            return False
+        connection.execute(
+            "UPDATE appointments SET status = ? WHERE id = ?",
+            (status, appointment_id),
+        )
+        connection.execute(
+            """
+            UPDATE leads SET status = ?
+            WHERE id = (SELECT lead_id FROM appointments WHERE id = ?)
+            """,
+            (status, appointment_id),
+        )
+        if status == "cancelled":
+            connection.execute(
+                "UPDATE appointment_slots SET available = 1 WHERE id = ?",
+                (appointment["slot_id"],),
+            )
+    return True
+
+
 def create_appointment(
     *, lead_id: str, slot_id: str, clinic_id: str, session_id: str
 ) -> tuple[str, str, str]:

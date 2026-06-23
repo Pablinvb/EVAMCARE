@@ -1,5 +1,6 @@
 import io
 import unittest
+from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
 import cv2
@@ -117,7 +118,9 @@ class ApiTests(unittest.TestCase):
             params={"latitude": -0.1807, "longitude": -78.4678, "radius_km": 50},
         )
         self.assertEqual(clinics.status_code, 200, clinics.text)
-        clinic = clinics.json()["items"][0]
+        clinic = next(
+            item for item in clinics.json()["items"] if item["demo"]
+        )
         self.assertTrue(clinic["demo"])
         self.assertNotIn("latitude", clinic)
         self.assertGreaterEqual(clinic["distanceKm"], 0)
@@ -172,6 +175,82 @@ class ApiTests(unittest.TestCase):
             params={"clinic_id": "demo-quito-norte"},
         )
         self.assertEqual(response.status_code, 401)
+
+    def test_partner_can_manage_clinic_slots_and_appointments(self) -> None:
+        partner_headers = {"X-Partner-Key": "development-partner-key"}
+        clinic_id = f"partner-{uuid4().hex[:10]}"
+        clinic_response = self.client.put(
+            "/api/v1/partner/clinics",
+            headers=partner_headers,
+            json={
+                "id": clinic_id,
+                "name": "Centro Dermatológico de Prueba",
+                "city": "Quito",
+                "address": "Av. de Prueba 123",
+                "latitude": -0.1807,
+                "longitude": -78.4678,
+                "phone": "+59320000000",
+                "whatsapp": "+593990000000",
+                "services": ["Dermatología general", "Acné"],
+            },
+        )
+        self.assertEqual(clinic_response.status_code, 200, clinic_response.text)
+        self.assertTrue(clinic_response.json()["clinic"]["verified"])
+        self.assertFalse(clinic_response.json()["clinic"]["demo"])
+
+        starts_at = datetime.now(timezone.utc) + timedelta(days=3)
+        slots_response = self.client.post(
+            f"/api/v1/partner/clinics/{clinic_id}/availability",
+            headers=partner_headers,
+            json={"startsAt": [starts_at.isoformat()]},
+        )
+        self.assertEqual(slots_response.status_code, 201, slots_response.text)
+        slot = slots_response.json()["items"][0]
+
+        token = self.client.post(
+            "/api/v1/analyze",
+            headers=self.headers,
+            files={"image": ("face.jpg", io.BytesIO(synthetic_image()), "image/jpeg")},
+        ).json()["referralToken"]
+        appointment = self.client.post(
+            "/api/v1/appointments",
+            headers=self.headers,
+            json={
+                "clinicId": clinic_id,
+                "referralToken": token,
+                "fullName": "Paciente de Prueba",
+                "phone": "+593990000111",
+                "email": None,
+                "preferredChannel": "whatsapp",
+                "preferredTime": None,
+                "latitude": -0.1807,
+                "longitude": -78.4678,
+                "distanceKm": 0,
+                "consentContact": True,
+                "consentLocation": True,
+                "consentResults": True,
+                "slotId": slot["id"],
+            },
+        )
+        self.assertEqual(appointment.status_code, 201, appointment.text)
+        appointment_id = appointment.json()["appointmentId"]
+
+        partner_appointments = self.client.get(
+            "/api/v1/partner/appointments",
+            headers=partner_headers,
+            params={"clinic_id": clinic_id},
+        )
+        self.assertEqual(partner_appointments.status_code, 200)
+        self.assertEqual(partner_appointments.json()["items"][0]["id"], appointment_id)
+
+        confirmed = self.client.patch(
+            f"/api/v1/partner/appointments/{appointment_id}",
+            headers=partner_headers,
+            params={"clinic_id": clinic_id},
+            json={"status": "confirmed"},
+        )
+        self.assertEqual(confirmed.status_code, 200, confirmed.text)
+        self.assertEqual(confirmed.json()["status"], "confirmed")
 
     def test_guidance_routes_and_store_recommendations(self) -> None:
         analysis = self.client.post(

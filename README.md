@@ -76,6 +76,10 @@ en `.env.example`.
 - `POST /api/v1/leads`
 - `DELETE /api/v1/leads/{lead_id}`
 - `GET /api/v1/partner/leads`
+- `PUT /api/v1/partner/clinics`
+- `POST /api/v1/partner/clinics/{clinic_id}/availability`
+- `GET /api/v1/partner/appointments`
+- `PATCH /api/v1/partner/appointments/{appointment_id}`
 - `POST /api/v1/guidance`
 - `GET /api/v1/guidance-history`
 - `GET /api/v1/stores`
@@ -108,6 +112,9 @@ La arquitectura y reglas del catálogo están documentadas en
 
 El proceso de incorporación está documentado en
 [`docs/PARTNER_CLINICS.md`](docs/PARTNER_CLINICS.md).
+
+El despliegue del backend y la conexión de GitHub Pages están documentados en
+[`docs/PRODUCTION_DEPLOYMENT.md`](docs/PRODUCTION_DEPLOYMENT.md).
 
 ## Pruebas
 

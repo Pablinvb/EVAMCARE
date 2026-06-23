@@ -2,7 +2,7 @@ import os
 from pathlib import Path
 
 APP_NAME = "DermaScan AI API"
-APP_VERSION = "0.6.0"
+APP_VERSION = "0.7.0"
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 ENVIRONMENT = os.getenv("DERMASCAN_ENV", "development")
@@ -27,7 +27,8 @@ CORS_ORIGINS = [
         "DERMASCAN_CORS_ORIGINS",
         (
             "http://127.0.0.1:4187,http://localhost:4187,"
-            "http://127.0.0.1:8000,http://localhost:8000"
+            "http://127.0.0.1:8000,http://localhost:8000,"
+            "https://pablinvb.github.io"
         ),
     ).split(",")
     if origin.strip()

@@ -1,0 +1,24 @@
+services:
+  - type: web
+    name: dermascan-ai-api
+    runtime: docker
+    plan: free
+    healthCheckPath: /api/v1/health
+    autoDeploy: true
+    envVars:
+      - key: DERMASCAN_ENV
+        value: production
+      - key: DERMASCAN_DATABASE_PATH
+        value: /app/data/dermascan.db
+      - key: DERMASCAN_CORS_ORIGINS
+        value: https://pablinvb.github.io
+      - key: DERMASCAN_REFERRAL_TOKEN_SECRET
+        generateValue: true
+      - key: DERMASCAN_PARTNER_API_KEY
+        generateValue: true
+      - key: DERMASCAN_REFERRAL_TOKEN_TTL_SECONDS
+        value: "3600"
+      - key: DERMASCAN_RATE_LIMIT_REQUESTS
+        value: "30"
+      - key: DERMASCAN_RATE_LIMIT_WINDOW_SECONDS
+        value: "600"
