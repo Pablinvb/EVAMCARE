@@ -30,6 +30,10 @@
 
   if (IS_STATIC_DEPLOYMENT) {
     $("#deployment-banner").hidden = false;
+    if (API_BASE) {
+      $("#deployment-banner").textContent =
+        "Aplicación conectada · Escaneo, orientación, catálogos y agenda usan el backend seguro de DermaScan.";
+    }
   }
 
   const stages = {
