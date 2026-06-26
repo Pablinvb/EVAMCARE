@@ -1,4 +1,4 @@
-# DermaScan AI
+# EvamCare 
 
 MVP cliente-servidor de evaluación cosmética facial orientativa. Permite usar
 la cámara o cargar una fotografía; el backend valida la imagen, detecta el
