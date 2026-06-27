@@ -41,7 +41,7 @@ button:focus-visible, a:focus-visible, label:focus-visible {
 }
 .brand { display: flex; align-items: center; gap: 10px; color: var(--ink); text-decoration: none; font-family: Manrope, sans-serif; font-weight: 800; font-size: 15px; letter-spacing: -.03em; }
 .brand-image-link { flex: 0 0 auto; }
-.brand-logo { width: 132px; height: 58px; object-fit: contain; display: block; border-radius: 16px; mix-blend-mode: multiply; }
+.brand-logo { width: 132px; height: 58px; object-fit: contain; display: block; }
 .brand-logo-footer { width: 120px; height: 54px; }
 .brand b { color: #77a127; }
 .brand-mark { width: 25px; height: 25px; display: grid; grid-template-columns: 1fr 1fr; gap: 2px; transform: rotate(45deg); }
