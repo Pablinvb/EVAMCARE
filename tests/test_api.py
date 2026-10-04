@@ -27,6 +27,12 @@ def synthetic_image() -> bytes:
 
 
 class ApiTests(unittest.TestCase):
+    def test_pages_authentication_cors(self):
+        response=self.client.options('/api/v1/accounts/login',headers={'Origin':'https://pablinvb.github.io','Access-Control-Request-Method':'POST','Access-Control-Request-Headers':'content-type'})
+        self.assertEqual(response.status_code,200)
+        self.assertEqual(response.headers['access-control-allow-origin'],'https://pablinvb.github.io')
+        response=self.client.options('/api/v1/accounts/login',headers={'Origin':'https://untrusted.example','Access-Control-Request-Method':'POST'})
+        self.assertNotIn('access-control-allow-origin',response.headers)
     def setUp(self) -> None:
         self.client_context = TestClient(app)
         self.client = self.client_context.__enter__()

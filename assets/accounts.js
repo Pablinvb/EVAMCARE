@@ -22,10 +22,15 @@
   document.querySelector('#save-history').parentElement.insertAdjacentElement('afterend',consent);
   const $ = s => section.querySelector(s);
   const message = text => $('#account-message').textContent = text;
-  const action = fn => async e => {e?.preventDefault(); try {await fn(e);} catch(error) {message(error.message);}};
+  const action = fn => async e => {e?.preventDefault();const submit=e?.target?.querySelector?.('button[type=submit],button:not([type])');if(submit)submit.disabled=true;try {await fn(e);} catch(error) {message(error instanceof TypeError || error.name==='AbortError'?'No se pudo conectar con el servidor. Inténtalo nuevamente.':error.message);}finally{if(submit)submit.disabled=false;}};
   async function api(path, body, method = 'GET') {
-    const response = await fetch(`${base}/api/v1/accounts${path}`, {method, headers:{'Content-Type':'application/json'}, ...(body ? {body:JSON.stringify(body)} : {})});
-    const data = await response.json(); if (!response.ok) throw Error(data.error?.message || (typeof data.detail === 'string' ? data.detail : 'Revisa los campos de la solicitud')); return data;
+    let response;
+    for(let attempt=0;attempt<2;attempt++){
+      try{response=await fetch(`${base}/api/v1/accounts${path}`, {method,signal:AbortSignal.timeout(25000),headers:{'Content-Type':'application/json'}, ...(body ? {body:JSON.stringify(body)} : {})});break;}
+      catch(error){if(method!=='GET'||attempt)throw Error('No se pudo conectar con el servidor. Inténtalo nuevamente.');await new Promise(resolve=>setTimeout(resolve,800));}
+    }
+    const data=await response.json().catch(()=>({}));
+    if(!response.ok)throw Error(response.status>=500?'El servidor no está disponible temporalmente. Inténtalo nuevamente.':data.error?.message || (typeof data.detail==='string'?data.detail:'Revisa los campos de la solicitud'));return data;
   }
   function list(target, items, render) {target.replaceChildren(); items.forEach(item => {const row=document.createElement('div'); row.className='history-card'; render(row,item);target.append(row);});}
   function button(row,text,fn) {const b=document.createElement('button');b.type='button';b.textContent=text;b.onclick=action(fn);row.append(b);}

@@ -8,12 +8,13 @@
   const shell=document.createElement('section');shell.className='section access-shell';
   shell.innerHTML='<aside id="role-navigation" aria-label="Navegación del panel"></aside><div id="access-heading"><h1></h1><p role="status" id="route-status"></p></div>';
   account.before(shell);
-  const css=document.createElement('style');css.textContent=`[hidden]{display:none!important}.access-shell{display:grid;grid-template-columns:220px 1fr;gap:24px}.access-shell aside{display:flex;flex-direction:column;gap:12px}.access-shell a{color:inherit}.access-auth{max-width:560px;margin:32px auto}.access-auth form{display:grid;gap:18px}.access-auth input{width:100%}.access-auth label{display:grid;gap:8px}#accounts pre{background:#faf5ef;padding:20px;border-radius:16px}#account-portal{display:grid;gap:24px}@media(max-width:700px){.access-shell{grid-template-columns:1fr}.access-shell aside{flex-direction:row;flex-wrap:wrap}}`;
-  document.head.append(css);
+  const art=document.createElement('div');art.className='auth-art';art.innerHTML='<img src="assets/evamcare-logo-transparent.png" alt="EVAMCARE"><div class="auth-orbit" aria-hidden="true"><span>◎</span></div><h2>Tu piel.<br>Tu historia.<br>Tu espacio.</h2><p>Un lugar para comprender tus resultados, seguir tu evolución y compartir tu expediente con quien tú elijas.</p>';account.prepend(art);
+  const title=document.createElement('h3');title.className='auth-title';const subtitle=document.createElement('p');subtitle.className='auth-subtitle';art.after(title,subtitle);
   const go=path=>{location.hash='#'+path;};
   const link=(parent,text,path)=>{const a=document.createElement('a');a.textContent=text;a.href='#'+path;parent.append(a);return a;};
   const status=text=>{document.querySelector('#route-status').textContent=text;};
   const login=document.querySelector('#account-login');
+  const toggle=document.createElement('button');toggle.type='button';toggle.className='password-toggle';toggle.textContent='Mostrar contraseña';toggle.setAttribute('aria-pressed','false');toggle.onclick=()=>{const field=login.elements.password;const show=field.type==='password';field.type=show?'text':'password';toggle.textContent=show?'Ocultar contraseña':'Mostrar contraseña';toggle.setAttribute('aria-pressed',String(show));};login.elements.password.after(toggle);
   const activate=document.querySelector('#account-activate');
   const recovery=document.querySelector('#account-recovery');
   const reset=document.querySelector('#account-reset');
@@ -48,10 +49,11 @@
     role=route.split('/')[1];
     for(const node of document.querySelectorAll('main > section'))node.hidden=true;
     // Existing scanner is a dialog and is preserved unchanged.
-    if(publicHome){for(const id of ['inicio','como-funciona','privacidad'])document.getElementById(id).hidden=false;document.querySelector('.trust-strip').hidden=false;}
+    if(publicHome){access.setPatient('');for(const id of ['inicio','como-funciona','privacidad'])document.getElementById(id).hidden=false;document.querySelector('.trust-strip').hidden=false;}
     shell.hidden=publicHome;account.hidden=publicHome;
     account.classList.toggle('access-auth',auth);
-    account.querySelector('h2').hidden=auth;
+    art.hidden=!auth;title.hidden=!auth;subtitle.hidden=!auth;
+    account.querySelector(':scope > h2').hidden=auth;
     if(auth)document.querySelector('#account-message').replaceChildren();
     for(const form of [login,activate,recovery,reset])form.hidden=true;
     document.querySelector('#account-portal').hidden=true;authLinks.hidden=route!='/login';
@@ -61,6 +63,7 @@
     document.querySelector('.topbar [data-start-scan]').hidden=!publicHome;
     if(auth){
       heading.textContent={'/login':'Iniciar sesión','/activate-account':'Activar cuenta','/forgot-password':'Recuperar contraseña','/reset-password':'Nueva contraseña'}[route];
+      title.textContent=route==='/login'?'Bienvenido a EVAMCARE':heading.textContent;subtitle.textContent=route==='/login'?'Inicia sesión para acceder a tu espacio':'Gestiona tu acceso de forma segura.';
       const form={'/login':login,'/activate-account':activate,'/forgot-password':recovery,'/reset-password':reset}[route];form.hidden=false;
       if(['/activate-account','/reset-password'].includes(route)&&!secret){form.hidden=true;status('Abre el enlace recibido. Si ha vencido, solicita uno nuevo a quien te invitó o recupera tu contraseña.');link(document.querySelector('#route-status'),' Recuperar acceso','/forgot-password');}
       if(route==='/activate-account'&&secret){try{const invited=await access.api('/invitation-check',{token:secret},'POST');status('Bienvenido/a, '+invited.name);}catch(error){form.hidden=true;status(error.message);}}
