@@ -51,6 +51,8 @@
     if(publicHome){for(const id of ['inicio','como-funciona','privacidad'])document.getElementById(id).hidden=false;document.querySelector('.trust-strip').hidden=false;}
     shell.hidden=publicHome;account.hidden=publicHome;
     account.classList.toggle('access-auth',auth);
+    account.querySelector('h2').hidden=auth;
+    if(auth)document.querySelector('#account-message').replaceChildren();
     for(const form of [login,activate,recovery,reset])form.hidden=true;
     document.querySelector('#account-portal').hidden=true;authLinks.hidden=route!='/login';
     document.querySelector('#role-navigation').hidden=auth;
