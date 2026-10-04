@@ -86,6 +86,36 @@ class SecurityTests(unittest.TestCase):
             with self.assertRaises(RuntimeError):initialize_database()
         self.assertFalse(self.path.exists())
 
+    def test_private_photo_scope_and_immediate_revocation(self):
+        from test_api import synthetic_image
+        from backend.patient_platform import save_patient_scan
+        with TestClient(app) as client:
+            admin_token=client.post('/api/v1/accounts/login',json={'email':'admin@example.test','password':'Initial-Password-123!'}).json()['token']
+            admin={'Authorization':'Bearer '+admin_token}
+            identities=[]
+            for role in ['patient','professional']:
+                invite=client.post('/api/v1/accounts/invite',headers=admin,json={'name':'Fictional Photo Test','email':role+'@example.test','roles':[role]}).json()
+                client.post('/api/v1/accounts/activate',json={'token':invite['activationToken'],'password':'Photo-Test-Password-123!'})
+                token=client.post('/api/v1/accounts/login',json={'email':role+'@example.test','password':'Photo-Test-Password-123!'}).json()['token']
+                identities.append((invite,{'Authorization':'Bearer '+token}))
+            patient,ph=identities[0];professional,dh=identities[1];pid=patient['patientId']
+            with connect() as c: session=c.execute('SELECT session_id FROM patients WHERE id=?',(pid,)).fetchone()[0]
+            sid,_=save_patient_scan(session,{'overallScore':60,'metrics':[]},capture_source='upload')
+            path=f'/api/v1/accounts/patients/{pid}/scans/{sid}/photo'
+            with patch('backend.private_photos.ensure_bucket'),patch('backend.private_photos.storage_request',return_value=b'private-jpeg'):
+                self.assertEqual(client.post(path,headers=ph,files={'image':('face.jpg',synthetic_image(),'image/jpeg')}).status_code,400)
+                response=client.post(path,headers=ph,data={'consent':'true'},files={'image':('face.jpg',synthetic_image(),'image/jpeg')})
+                self.assertEqual(response.status_code,201,response.text)
+                iid=response.json()['id'];photo=f'/api/v1/accounts/patients/{pid}/photos/{iid}'
+                self.assertEqual(client.get(photo,headers=admin).status_code,403)
+                self.assertEqual(client.get(photo,headers=dh).status_code,403)
+                grant=client.post('/api/v1/accounts/grants',headers=ph,json={'professionalId':professional['id'],'scopes':['photographs'],'hours':1}).json()['id']
+                download=client.get(photo,headers=dh)
+                self.assertEqual(download.status_code,200,download.text)
+                self.assertEqual(download.headers['Cache-Control'],'no-store')
+                client.post('/api/v1/accounts/grants/'+grant+'/revoke',headers=ph)
+                self.assertEqual(client.get(photo,headers=dh).status_code,403)
+
     def test_export_excludes_secrets_demo_and_preserves_identity(self):
         with TestClient(app):
             with connect() as c:

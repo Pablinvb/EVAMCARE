@@ -21,6 +21,7 @@ from pydantic import BaseModel, Field
 from .analyzer import SkinAnalyzer
 from .accounts import router as accounts_router, initialize_accounts, current_user, record_session
 from .password_recovery import router as recovery_router
+from .private_photos import router as photos_router
 from .config import (
     ALLOWED_CONTENT_TYPES,
     APP_NAME,
@@ -187,6 +188,7 @@ app.add_middleware(
 )
 app.include_router(accounts_router)
 app.include_router(recovery_router)
+app.include_router(photos_router)
 
 @app.middleware("http")
 async def account_patient_context(request, call_next):

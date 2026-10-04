@@ -45,7 +45,29 @@
   $('#account-invite').onsubmit=action(async e=>{const d=Object.fromEntries(new FormData(e.target));const invitation=await api('/invite',{name:d.name,email:d.email,roles:[d.role],specialty:d.specialty||null},'POST');message(`Invitación creada. Token de activación (48 horas): ${invitation.activationToken}. Paciente: ${invitation.patientId || 'No aplica'}`);});
   $('#users-load').onclick=action(async()=>{const params=new URLSearchParams({q:$('#user-search').value,role:$('#user-role').value,status:$('#user-status').value});list($('#users-list'),(await api('/users?'+params)).items,(row,u)=>{row.textContent=`${u.name} · ${u.email} · ${u.roles.join(', ')} · ${u.status} · ${u.created_at}`;button(row,'Activar / desactivar',async()=>{await api('/users/'+u.id,{name:u.name,status:u.status==='active'?'inactive':'active',roles:u.roles},'PUT');$('#users-load').click();});});});
   $('#patients-load').onclick=action(async()=>{list($('#patients-list'),(await api('/patients?q='+encodeURIComponent($('#patient-search').value))).items,(row,p)=>{row.textContent=`${p.first_name} · ${p.patient_code} · ${p.scan_count} escaneos · ${p.last_evaluation || 'Sin evaluación'}`;button(row,'Ver expediente',()=>openRecord(p.id));button(row,'Nueva evaluación',async()=>{await api(`/patients/${p.id}/record`);selected=p.id;message(`Evaluación seleccionada: ${p.first_name} (${p.patient_code}). Confirma el consentimiento antes de escanear.`);document.querySelector('#scanner').scrollIntoView({behavior:'smooth'});});});});
-  $('#grant-form').onsubmit=action(async e=>{const d=new FormData(e.target);await api('/grants',{professionalId:d.get('professional'),hours:Number(d.get('hours')),scopes:['profile','scans','evolution','recommendations'].filter(s=>d.has(s))},'POST');await grants();message('Acceso autorizado');});
+  $('#grant-form').onsubmit=action(async e=>{const d=new FormData(e.target);await api('/grants',{professionalId:d.get('professional'),hours:Number(d.get('hours')),scopes:['profile','scans','evolution','recommendations','photographs'].filter(s=>d.has(s))},'POST');await grants();message('Acceso autorizado');});
+  const photoScope=document.createElement('label');photoScope.innerHTML='<input name="photographs" type="checkbox">Fotografías adjuntas';$('#grant-form').prepend(photoScope);
+  $('#grant-form p').textContent='El escáner no guarda fotografías por defecto. Puedes adjuntarlas opcionalmente con consentimiento cuando el almacenamiento privado esté configurado.';
+  const originalOpenRecord=openRecord;
+  openRecord=async pid=>{
+    await originalOpenRecord(pid);
+    const target=$('#account-record');
+    button(target,'Consultar fotografías autorizadas',async()=>{
+      const photos=await api(`/patients/${pid}/photos`);
+      photos.items.forEach(photo=>button(target,'Ver fotografía de '+photo.created_at,async()=>{
+        const response=await fetch(`${base}/api/v1/accounts/patients/${pid}/photos/${photo.id}`);
+        if(!response.ok)throw Error('Fotografía no autorizada o almacenamiento no disponible');
+        const objectUrl=URL.createObjectURL(await response.blob());const image=document.createElement('img');image.alt='Fotografía privada de la evaluación';image.style.maxWidth='300px';image.src=objectUrl;image.onload=()=>URL.revokeObjectURL(objectUrl);target.append(image);
+      }));
+      if(!photos.items.length)message('Este expediente no tiene fotografías adjuntas.');
+    });
+    if(user.roles.some(r=>['patient','evaluator'].includes(r))){
+      const form=document.createElement('form');
+      form.innerHTML='<h3>Adjuntar fotografía privada</h3><label>ID de evaluación <input name="scan" required></label><label>Fotografía <input name="image" type="file" accept="image/jpeg,image/png,image/webp" required></label><label><input name="consent" type="checkbox" required value="true">Autorizo almacenar esta fotografía en mi expediente privado</label><button>Guardar fotografía</button>';
+      form.onsubmit=action(async e=>{const data=new FormData(e.target);const sid=data.get('scan');data.delete('scan');const response=await fetch(`${base}/api/v1/accounts/patients/${pid}/scans/${encodeURIComponent(sid)}/photo`,{method:'POST',body:data});if(!response.ok){const error=await response.json();throw Error(error.error?.message||error.detail||'No se pudo guardar la fotografía');}message('Fotografía guardada en almacenamiento privado.');});
+      target.append(form);
+    }
+  };
   const nav=document.querySelector('nav');if(nav){const link=document.createElement('a');link.href='#accounts';link.textContent='Mi cuenta';nav.append(link);}
   const recovery=document.createElement('form');
   recovery.innerHTML='<h3>Recuperar contraseña</h3><label>Correo <input name="email" type="email" required autocomplete="email"></label><button>Enviar enlace de recuperación</button>';

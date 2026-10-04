@@ -15,6 +15,8 @@ insert into evamcare.user_profiles(id,auth_user_id,email,name,status,patient_id,
 insert into evamcare.user_roles values('rls-admin','admin'),('rls-patient-user','patient'),('rls-evaluator','evaluator'),('rls-professional','professional');
 insert into evamcare.evaluator_patient_assignments values('rls-evaluator','rls-patient');
 insert into evamcare.skin_scans(id,patient_id,scan_date,capture_source,analysis_payload_json,created_at,updated_at) values('rls-scan','rls-patient',now(),'upload','{}',now(),now());
+insert into evamcare.scan_images values('rls-photo','rls-scan','face','rls-patient/rls.jpg',now());
+insert into storage.objects(bucket_id,name) values('evamcare-photos','rls-patient/rls.jpg');
 insert into evamcare.professional_access_grants values('rls-grant','rls-patient','rls-professional','["recommendations"]',now()+interval '1 hour',null);
 set local role authenticated;
 select set_config('request.jwt.claim.sub','00000000-0000-4000-8000-000000000001',true);
@@ -28,6 +30,7 @@ end $$;
 select set_config('request.jwt.claim.sub','00000000-0000-4000-8000-000000000002',true);
 do $$ begin
  if not exists(select 1 from evamcare.skin_scans where id='rls-scan') then raise exception 'Owner cannot read scan'; end if;
+ if not exists(select 1 from storage.objects where name='rls-patient/rls.jpg') then raise exception 'Owner cannot read private photo'; end if;
 end $$;
 select set_config('request.jwt.claim.sub','00000000-0000-4000-8000-000000000003',true);
 do $$ begin
@@ -37,15 +40,23 @@ select set_config('request.jwt.claim.sub','00000000-0000-4000-8000-000000000004'
 do $$ begin
  if exists(select 1 from evamcare.skin_scans where id='rls-scan') then raise exception 'Scope leaked scans'; end if;
  if evamcare.can_read('rls-patient','photographs') then raise exception 'Scope leaked photos'; end if;
+ if exists(select 1 from storage.objects where name='rls-patient/rls.jpg') then raise exception 'Storage leaked private photo'; end if;
  if not evamcare.can_read('rls-patient','recommendations') then raise exception 'Recommendation grant ignored'; end if;
 end $$;
 insert into evamcare.professional_follow_up_notes values('rls-note','rls-patient','rls-professional','Fictional private note',now());
+reset role;
+update evamcare.professional_access_grants set scopes_json='["recommendations","photographs"]' where id='rls-grant';
+set local role authenticated;
+do $$ begin
+ if not exists(select 1 from storage.objects where name='rls-patient/rls.jpg') then raise exception 'Authorized private photo unavailable'; end if;
+end $$;
 reset role;
 update evamcare.professional_access_grants set revoked_at=now() where id='rls-grant';
 set local role authenticated;
 do $$ begin
  if evamcare.active_grant('rls-patient') then raise exception 'Revocation ignored'; end if;
  if exists(select 1 from evamcare.professional_follow_up_notes where id='rls-note') then raise exception 'Revoked user can read notes'; end if;
+ if exists(select 1 from storage.objects where name='rls-patient/rls.jpg') then raise exception 'Revoked user can read photo'; end if;
 end $$;
 reset role;
 update evamcare.professional_access_grants set revoked_at=null,expires_at=now()-interval '1 minute' where id='rls-grant';
