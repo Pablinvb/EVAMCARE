@@ -93,7 +93,7 @@
   }
   window.addEventListener('evamcare-auth',e=>{user=e.detail;if(location.hash==='#/login'||!location.hash)go('/panel');else render();});
   window.addEventListener('hashchange',render);
-  document.querySelector('#patients-list').addEventListener('click',e=>{if(e.target.textContent==='Ver expediente')go('/'+role+'/record');});
+  document.querySelector('#patients-list').addEventListener('click',e=>{if(e.target.textContent==='Ver expediente')go('/'+role+'/record');if(e.target.textContent==='Nueva evaluación'){document.querySelector('#patient-account-consent').checked=false;document.querySelector('[data-start-scan]').click();}});
   document.querySelector('#grants-list').addEventListener('click',e=>{if(e.target.textContent==='Ver expediente')go('/professional/record');});
   if(location.hash.startsWith('#reset=')){secret=location.hash.slice(7);history.replaceState(null,'',location.pathname+location.search+'#/reset-password');}
   render();
