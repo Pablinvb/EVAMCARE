@@ -68,6 +68,11 @@ class Connection:
         for statement in script.split(';'):
             if statement.strip():self.execute(statement)
 
+    def executemany(self,query,rows):
+        cursor=self.raw.cursor()
+        cursor.executemany(translate(query),rows)
+        return Cursor(cursor)
+
     def commit(self):self.raw.commit()
     def rollback(self):self.raw.rollback()
     def close(self):self.raw.close()
