@@ -59,6 +59,20 @@ from .database import (
     upsert_partner_clinic,
 )
 from .referrals import create_referral_token, verify_referral_token
+from .patient_platform import (
+    compare_scans,
+    create_share_session,
+    get_dashboard,
+    get_or_create_patient,
+    get_scan,
+    get_timeline,
+    initialize_patient_platform,
+    list_patient_scans,
+    list_recommendations,
+    list_share_sessions,
+    revoke_share_session,
+    save_patient_scan,
+)
 
 SESSION_PATTERN = re.compile(r"^[a-zA-Z0-9_-]{16,80}$")
 rate_buckets: dict[str, deque[float]] = defaultdict(deque)
@@ -130,9 +144,20 @@ class PartnerAppointmentStatusRequest(BaseModel):
     status: Literal["confirmed", "completed", "cancelled", "no-show"]
 
 
+class ShareRecordRequest(BaseModel):
+    permissions: list[
+        Literal["profile", "scans", "images", "evolution", "recommendations"]
+    ] = Field(default_factory=lambda: ["profile", "scans", "evolution"])
+    recipientType: Literal[
+        "dermatologist", "cosmetologist", "clinic", "skincare_provider", "other"
+    ] = "dermatologist"
+    expiresInHours: int = Field(default=72, ge=1, le=720)
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     initialize_database()
+    initialize_patient_platform()
     yield
 
 
@@ -249,6 +274,9 @@ def clinical_status() -> dict:
 async def analyze(
     image: Annotated[UploadFile, File(description="Fotografía facial JPEG, PNG o WebP")],
     save_history: Annotated[bool, Form()] = False,
+    capture_source: Annotated[
+        Literal["webcam", "iphone", "upload", "vision_pro"], Form()
+    ] = "webcam",
     x_derma_session: Annotated[str | None, Header()] = None,
 ) -> dict:
     session_id = validate_session(x_derma_session)
@@ -257,12 +285,19 @@ async def analyze(
     result = await run_in_threadpool(analyzer.analyze, decoded)
     referral_token = create_referral_token(result)
     analysis_id = None
+    patient_scan_id = None
     created_at = None
     if save_history:
         analysis_id, created_at = save_analysis(session_id, result)
+        patient_scan_id, created_at = save_patient_scan(
+            session_id,
+            result,
+            capture_source=capture_source,
+        )
     return {
         "ok": True,
         "analysisId": analysis_id,
+        "patientScanId": patient_scan_id,
         "createdAt": created_at,
         "stored": bool(save_history),
         "imageStored": False,
@@ -273,6 +308,153 @@ async def analyze(
             "Evaluación cosmética experimental. No detecta enfermedades ni "
             "sustituye una consulta dermatológica."
         ),
+    }
+
+
+@app.get("/api/v1/patients/me")
+def patient_profile(
+    x_derma_session: Annotated[str | None, Header()] = None,
+) -> dict:
+    session_id = validate_session(x_derma_session)
+    return {"ok": True, "patient": get_or_create_patient(session_id)}
+
+
+@app.get("/api/v1/patients/me/dashboard")
+def patient_dashboard(
+    x_derma_session: Annotated[str | None, Header()] = None,
+) -> dict:
+    session_id = validate_session(x_derma_session)
+    return {"ok": True, **get_dashboard(session_id)}
+
+
+@app.get("/api/v1/patients/me/scans")
+def patient_scans(
+    x_derma_session: Annotated[str | None, Header()] = None,
+    limit: Annotated[int, Query(ge=1, le=100)] = 50,
+) -> dict:
+    session_id = validate_session(x_derma_session)
+    return {"ok": True, "items": list_patient_scans(session_id, limit)}
+
+
+@app.get("/api/v1/patients/me/scans/{scan_id}")
+def patient_scan_detail(
+    scan_id: str,
+    x_derma_session: Annotated[str | None, Header()] = None,
+) -> dict:
+    session_id = validate_session(x_derma_session)
+    scan = get_scan(session_id, scan_id)
+    if not scan:
+        raise HTTPException(status_code=404, detail="Escaneo no encontrado.")
+    return {"ok": True, "scan": scan}
+
+
+@app.get("/api/v1/patients/me/timeline")
+def patient_timeline(
+    x_derma_session: Annotated[str | None, Header()] = None,
+) -> dict:
+    session_id = validate_session(x_derma_session)
+    return {"ok": True, **get_timeline(session_id)}
+
+
+@app.get("/api/v1/patients/me/compare")
+def patient_scan_comparison(
+    scan_a: Annotated[str, Query(min_length=10)],
+    scan_b: Annotated[str, Query(min_length=10)],
+    x_derma_session: Annotated[str | None, Header()] = None,
+) -> dict:
+    session_id = validate_session(x_derma_session)
+    comparison = compare_scans(session_id, scan_a, scan_b)
+    if not comparison:
+        raise HTTPException(status_code=404, detail="No se pudieron comparar los escaneos.")
+    return {"ok": True, **comparison}
+
+
+@app.get("/api/v1/patients/me/recommendations")
+def patient_recommendations(
+    x_derma_session: Annotated[str | None, Header()] = None,
+) -> dict:
+    session_id = validate_session(x_derma_session)
+    return {
+        "ok": True,
+        "items": list_recommendations(session_id),
+        "disclaimer": (
+            "Recomendaciones cosméticas orientativas. No son diagnóstico ni tratamiento médico."
+        ),
+    }
+
+
+@app.get("/api/v1/patients/me/shares")
+def patient_shares(
+    x_derma_session: Annotated[str | None, Header()] = None,
+) -> dict:
+    session_id = validate_session(x_derma_session)
+    return {"ok": True, "items": list_share_sessions(session_id)}
+
+
+@app.post("/api/v1/patients/me/share", status_code=201)
+def create_patient_share(
+    request: ShareRecordRequest,
+    x_derma_session: Annotated[str | None, Header()] = None,
+) -> dict:
+    session_id = validate_session(x_derma_session)
+    if not request.permissions:
+        raise HTTPException(status_code=400, detail="Selecciona al menos un permiso.")
+    share = create_share_session(
+        session_id,
+        permissions=list(dict.fromkeys(request.permissions)),
+        recipient_type=request.recipientType,
+        expires_in_hours=request.expiresInHours,
+    )
+    return {
+        "ok": True,
+        "share": share,
+        "notice": (
+            "Token creado para demo. En producción debe entregarse por canal seguro "
+            "y validarse con autenticación profesional."
+        ),
+    }
+
+
+@app.post("/api/v1/shares/{share_id}/revoke")
+def revoke_patient_share(
+    share_id: str,
+    x_derma_session: Annotated[str | None, Header()] = None,
+) -> dict:
+    session_id = validate_session(x_derma_session)
+    if not revoke_share_session(session_id, share_id):
+        raise HTTPException(status_code=404, detail="Share no encontrado o ya revocado.")
+    return {"ok": True, "shareId": share_id, "revoked": True}
+
+
+@app.get("/api/v1/capture-providers")
+def capture_providers() -> dict:
+    return {
+        "ok": True,
+        "items": [
+            {
+                "id": "standard-camera",
+                "captureSource": "webcam",
+                "name": "Standard Scan",
+                "status": "available",
+                "description": "Reutiliza el scanner facial web actual.",
+            },
+            {
+                "id": "upload",
+                "captureSource": "upload",
+                "name": "Upload Scan",
+                "status": "available",
+                "description": "Permite analizar fotografías subidas por el usuario.",
+            },
+            {
+                "id": "vision-pro",
+                "captureSource": "vision_pro",
+                "name": "Spatial Scan / Vision Pro Ready",
+                "status": "demo_adapter",
+                "description": (
+                    "Arquitectura preparada para captura espacial. No indica hardware Vision Pro conectado."
+                ),
+            },
+        ],
     }
 
 
@@ -728,3 +910,14 @@ def frontend_script() -> FileResponse:
 @app.get("/config.js", include_in_schema=False)
 def frontend_config() -> FileResponse:
     return FileResponse(PROJECT_ROOT / "config.js", media_type="text/javascript")
+
+
+@app.get("/assets/{asset_name}", include_in_schema=False)
+def frontend_asset(asset_name: str) -> FileResponse:
+    if not re.fullmatch(r"[a-zA-Z0-9_.-]+", asset_name):
+        raise HTTPException(status_code=404, detail="Asset no encontrado.")
+    path = PROJECT_ROOT / "assets" / asset_name
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="Asset no encontrado.")
+    media_type = "image/png" if asset_name.endswith(".png") else None
+    return FileResponse(path, media_type=media_type)

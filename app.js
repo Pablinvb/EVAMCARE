@@ -33,6 +33,7 @@
   let userLocation = null;
   let selectedClinic = null;
   let guidanceRoute = null;
+  let dashboardScans = [];
 
   if (IS_STATIC_DEPLOYMENT) {
     $("#deployment-banner").hidden = false;
@@ -42,6 +43,130 @@
     }
   }
 
+
+
+  const saveHistoryInput = $("#save-history");
+  if (saveHistoryInput) saveHistoryInput.checked = true;
+
+  async function apiGet(path) {
+    const response = await fetch(`${API_BASE}${path}`, { headers: { "X-Derma-Session": sessionId } });
+    const payload = await response.json().catch(() => null);
+    if (!response.ok) throw new Error(payload?.error?.message || "No se pudo cargar la informacion.");
+    return payload;
+  }
+
+  async function apiPost(path, body) {
+    const response = await fetch(`${API_BASE}${path}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Derma-Session": sessionId },
+      body: JSON.stringify(body || {}),
+    });
+    const payload = await response.json().catch(() => null);
+    if (!response.ok) throw new Error(payload?.error?.message || "No se pudo completar la accion.");
+    return payload;
+  }
+
+  async function loadPatientPlatform() {
+    if (!API_BASE) return renderPlatformOffline();
+    try {
+      const [dashboard, timeline, recommendations, shares] = await Promise.all([
+        apiGet("/api/v1/patients/me/dashboard"),
+        apiGet("/api/v1/patients/me/timeline"),
+        apiGet("/api/v1/patients/me/recommendations"),
+        apiGet("/api/v1/patients/me/shares"),
+      ]);
+      renderDashboard(dashboard);
+      renderHistory(timeline.items || []);
+      renderEvolution(timeline);
+      renderPatientRecommendations(recommendations.items || []);
+      renderShares(shares.items || []);
+    } catch (error) {
+      renderPlatformOffline(error.message);
+    }
+  }
+
+  function renderDashboard(data) {
+    const patient = data.patient || {};
+    $("#patient-name").textContent = `${patient.firstName || "Demo"} ${patient.lastName || "Patient"}`.trim();
+    $("#patient-code").textContent = patient.patientCode || "DS-DEMO";
+    $("#patient-demo-label").textContent = patient.demo ? "DEMO - datos demostrativos" : "Paciente activo";
+    $("#dashboard-score").textContent = data.currentSkinScore ?? "-";
+    $("#dashboard-scan-count").textContent = data.scanCount ?? 0;
+    $("#dashboard-last-scan").textContent = data.lastScan
+      ? `Ultimo scan: ${formatDate(data.lastScan.scanDate)} - fuente ${sourceLabel(data.lastScan.captureSource)}`
+      : "Aun no hay scans guardados.";
+    $("#patient-goals").innerHTML = (data.goals || []).map((goal) => `<span>${escapeHtml(goal)}</span>`).join("");
+  }
+
+  function renderHistory(scans) {
+    dashboardScans = scans.slice().reverse();
+    $("#patient-history").innerHTML = scans.length ? scans.map((scan, index) => `
+      <article class="history-row" data-scan-id="${escapeHtml(scan.id)}">
+        <div><span class="history-badge">Scan #${String(scans.length - index).padStart(3, "0")}</span><p>${escapeHtml(formatDate(scan.scanDate))}</p></div>
+        <div><h4>${escapeHtml(sourceLabel(scan.captureSource))}</h4><p>${escapeHtml(scan.aiModel)} v${escapeHtml(scan.aiModelVersion)} - confianza ${scan.confidenceScore ?? "-"}%</p></div>
+        <strong class="history-score">${scan.overallScore}<small>/100</small></strong>
+      </article>
+    `).join("") : `<p>No hay scans guardados todavia. Realiza un nuevo scan y deja activado guardar historial.</p>`;
+  }
+
+  function renderEvolution(timeline) {
+    const changes = timeline.changes || [];
+    $("#patient-evolution").innerHTML = changes.length ? changes.map((item) => `
+      <article class="evolution-card">
+        <span>${escapeHtml(item.label)}</span>
+        <strong>${item.initial} -> ${item.current} <small>${item.change >= 0 ? "+" : ""}${item.change}</small></strong>
+        <div class="evolution-track"><span style="width:${clamp(item.current)}%"></span></div>
+      </article>
+    `).join("") : `<p>Se necesitan al menos dos scans para visualizar evolucion.</p>`;
+    const panel = $("#scan-comparison");
+    if ((timeline.items || []).length >= 2) {
+      const chronological = [...timeline.items].sort((a, b) => new Date(a.scanDate) - new Date(b.scanDate));
+      const first = chronological[0];
+      const latest = chronological[chronological.length - 1];
+      panel.classList.add("visible");
+      panel.innerHTML = `<h4>Comparacion rapida</h4><p>Inicial ${formatDate(first.scanDate)} vs actual ${formatDate(latest.scanDate)}. Observed change, sin causalidad medica.</p>`;
+    } else {
+      panel.classList.remove("visible");
+      panel.innerHTML = "";
+    }
+  }
+
+  function renderPatientRecommendations(items) {
+    $("#patient-recommendations").innerHTML = items.length ? items.map((item) => `
+      <article class="recommendation-row">
+        <span>Prioridad ${item.priority} - ${escapeHtml(item.category)}</span>
+        <h4>${escapeHtml(item.title)}</h4>
+        <p>${escapeHtml(item.description)}</p>
+      </article>
+    `).join("") : `<p>Las recomendaciones se generan al guardar scans en el expediente.</p>`;
+  }
+
+  function renderShares(items) {
+    $("#share-list").innerHTML = items.length ? items.map((item) => `
+      <article class="share-row">
+        <h4>${escapeHtml(item.recipientType)} - ${item.revokedAt ? "Revocado" : "Activo"}</h4>
+        <p>Permisos: ${item.permissions.map(escapeHtml).join(", ")}. Expira: ${formatDate(item.expiresAt)}.</p>
+        ${item.revokedAt ? "" : `<button class="button button-outline revoke-share" data-share-id="${escapeHtml(item.id)}">Revocar</button>`}
+      </article>
+    `).join("") : `<p>No hay sesiones compartidas activas.</p>`;
+  }
+
+  function renderPlatformOffline(message = "") {
+    $("#dashboard-last-scan").textContent = message || "Backend iniciando. Render puede tardar en despertar.";
+    $("#patient-goals").innerHTML = ["Hydration", "Acne", "General skin health"].map((goal) => `<span>${goal}</span>`).join("");
+    $("#patient-history").innerHTML = `<p>Conecta el backend para ver el expediente persistente.</p>`;
+    $("#patient-evolution").innerHTML = `<p>La evolucion se calcula con scans persistidos.</p>`;
+    $("#patient-recommendations").innerHTML = `<p>Las recomendaciones se generan desde los datos estructurados.</p>`;
+  }
+
+  function formatDate(value) {
+    if (!value) return "-";
+    return new Intl.DateTimeFormat("es-EC", { dateStyle: "medium" }).format(new Date(value));
+  }
+
+  function sourceLabel(source) {
+    return ({ webcam: "Standard Camera", upload: "Upload Scan", iphone: "iPhone", vision_pro: "Vision Pro Ready", demo: "Demo Scan" })[source] || source || "Standard Camera";
+  }
   const stages = {
     capture: $("#stage-capture"),
     processing: $("#stage-processing"),
@@ -51,6 +176,59 @@
   function showStage(name) {
     Object.entries(stages).forEach(([key, node]) => node.classList.toggle("active", key === name));
     scanner.scrollTo({ top: 0, behavior: "instant" });
+  }
+
+
+
+  loadPatientPlatform();
+
+  const spatialButton = $("#open-spatial-mode");
+  if (spatialButton) {
+    spatialButton.addEventListener("click", () => {
+      document.querySelector("#spatial-scan")?.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
+  }
+
+  const createShareButton = $("#create-share");
+  if (createShareButton) {
+    createShareButton.addEventListener("click", async () => {
+      const target = $("#share-result");
+      createShareButton.disabled = true;
+      createShareButton.textContent = "Creando...";
+      try {
+        const recipientType = $("#share-recipient").value;
+        const payload = await apiPost("/api/v1/patients/me/share", {
+          recipientType,
+          expiresInHours: 72,
+          permissions: ["profile", "scans", "evolution", "recommendations"],
+        });
+        target.classList.add("visible");
+        target.innerHTML = `<b>Share creado:</b> ${escapeHtml(payload.share.id)}<br><small>Token demo: ${escapeHtml(payload.share.token)}. Expira ${formatDate(payload.share.expiresAt)}.</small>`;
+        await loadPatientPlatform();
+      } catch (error) {
+        target.classList.add("visible");
+        target.textContent = error.message || "No se pudo crear el share.";
+      } finally {
+        createShareButton.disabled = false;
+        createShareButton.textContent = "Crear share seguro";
+      }
+    });
+  }
+
+  const shareList = $("#share-list");
+  if (shareList) {
+    shareList.addEventListener("click", async (event) => {
+      const button = event.target.closest(".revoke-share");
+      if (!button) return;
+      button.disabled = true;
+      button.textContent = "Revocando...";
+      try {
+        await apiPost(`/api/v1/shares/${encodeURIComponent(button.dataset.shareId)}/revoke`, {});
+        await loadPatientPlatform();
+      } catch (error) {
+        button.textContent = error.message || "Error";
+      }
+    });
   }
 
   function openScanner() {
@@ -390,6 +568,7 @@
       lastAnalysis = payload.result;
       lastReferralToken = payload.referralToken;
       renderResults(lastAnalysis);
+      if (payload.stored || payload.patientScanId) loadPatientPlatform();
       await wait(260);
       showStage("results");
       requestAnimationFrame(() => drawMap(lastAnalysis));
@@ -416,6 +595,7 @@
     const form = new FormData();
     form.append("image", blob, "dermascan-capture.jpg");
     form.append("save_history", $("#save-history").checked ? "true" : "false");
+    form.append("capture_source", sourceMode === "upload" ? "upload" : "webcam");
     let response;
     try {
       response = await fetch(`${API_BASE}/api/v1/analyze`, {

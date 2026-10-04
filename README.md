@@ -62,6 +62,8 @@ en `.env.example`.
   Mendieta Beauty y Fybeca.
 - Rutinas completas adaptadas a piel seca, grasa, mixta, equilibrada, sensible
   y mixta deshidratada.
+- Plataforma de expediente cutaneo persistente con paciente demo, DERMASCAN ID, historial, evolucion, comparacion, recomendaciones y share revocable.
+- Modo Spatial Scan / Vision Pro Ready como adaptador demo; no afirma hardware conectado.
 - Ruta dermatológica con disponibilidad y solicitud de horario.
 
 ## Endpoints
@@ -86,6 +88,17 @@ en `.env.example`.
 - `GET /api/v1/stores/{store_id}/recommendations`
 - `GET /api/v1/clinics/{clinic_id}/availability`
 - `POST /api/v1/appointments`
+- `GET /api/v1/patients/me`
+- `GET /api/v1/patients/me/dashboard`
+- `GET /api/v1/patients/me/scans`
+- `GET /api/v1/patients/me/scans/{scan_id}`
+- `GET /api/v1/patients/me/timeline`
+- `GET /api/v1/patients/me/compare`
+- `GET /api/v1/patients/me/recommendations`
+- `GET /api/v1/patients/me/shares`
+- `POST /api/v1/patients/me/share`
+- `POST /api/v1/shares/{share_id}/revoke`
+- `GET /api/v1/capture-providers`
 
 Los centros incluidos inicialmente son perfiles demostrativos, no alianzas
 comerciales verificadas. Deben reemplazarse o marcarse como verificados solo
