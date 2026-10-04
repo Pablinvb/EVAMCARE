@@ -16,6 +16,7 @@
   const cameraStatus = $("#camera-status");
   const IS_LOCAL = ["127.0.0.1", "localhost"].includes(location.hostname);
   const IS_STATIC_DEPLOYMENT = !IS_LOCAL;
+  const SAME_ORIGIN_APP = location.hostname.endsWith('.onrender.com');
   const API_BASE = window.DERMASCAN_API_URL
     || (location.hostname === "pablinvb.github.io"
       ? "https://dermascan-ai-api.onrender.com"
@@ -70,7 +71,7 @@
   }
 
   async function loadPatientPlatform() {
-    if (!API_BASE && IS_STATIC_DEPLOYMENT) return renderPlatformOffline();
+    if (!API_BASE && IS_STATIC_DEPLOYMENT && !SAME_ORIGIN_APP) return renderPlatformOffline();
     try {
       const [dashboard, timeline, recommendations, shares] = await Promise.all([
         apiGet("/api/v1/patients/me/dashboard"),

@@ -1,5 +1,5 @@
 (() => {
-  const base = window.DERMASCAN_API_URL || (location.hostname === 'pablinvb.github.io' ? 'https://dermascan-ai-api.onrender.com' : location.port === '8000' ? '' : 'http://127.0.0.1:8000');
+  const base = window.DERMASCAN_API_URL || (location.hostname === 'pablinvb.github.io' ? 'https://dermascan-ai-api.onrender.com' : location.port === '8000' || location.hostname.endsWith('.onrender.com') ? '' : 'http://127.0.0.1:8000');
   let token = sessionStorage.getItem('evamcare-account') || '', selected = '', user;
   const originalFetch = window.fetch.bind(window);
   window.fetch = (input, options = {}) => {
