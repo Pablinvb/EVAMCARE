@@ -162,6 +162,8 @@ async def lifespan(_: FastAPI):
     initialize_database()
     initialize_patient_platform()
     initialize_accounts()
+    from .staging_demo import seed
+    seed()
     from .database import connect
     import os
     if os.getenv('DATABASE_URL'):
