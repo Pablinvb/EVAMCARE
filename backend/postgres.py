@@ -10,6 +10,41 @@ from collections.abc import Mapping
 from psycopg import connect as pg_connect
 from psycopg import sql
 from psycopg.rows import dict_row
+from psycopg.conninfo import conninfo_to_dict
+
+def connection_diagnostic(error):
+    # Inspect driver text in memory only. Never return it: it may contain secrets.
+    message=str(error).lower()
+    state=getattr(error,'sqlstate',None)
+    if state in ('28P01','28000') or any(s in message for s in ('password authentication failed','tenant or user not found','authentication failed','sasl authentication')):
+        return 'DB_AUTH: Check pooler username, project reference and database password; percent-encode URI password once.'
+    if any(s in message for s in ('could not translate host','name or service not known','nodename nor servname','getaddrinfo','name resolution')):
+        return 'DB_DNS: Check the Session Pooler hostname copied from Supabase Connect.'
+    if any(s in message for s in ('certificate','sslrootcert','ssl error','tls','ssl connection','sslmode','root certificate')):
+        return 'DB_TLS: Check Supabase CA certificate and PGSSLROOTCERT; keep verify-full enabled.'
+    if any(s in message for s in ('network is unreachable','no route to host')):
+        return 'DB_NETWORK: Use IPv4-compatible Supabase Session Pooler on port 5432, not the IPv6 direct endpoint.'
+    if any(s in message for s in ('timeout','timed out','connection refused','could not connect')):
+        return 'DB_CONNECT: Check port 5432, project status and Supabase network restrictions for Render outbound IPs.'
+    if state=='3D000' or 'database' in message and 'does not exist' in message:
+        return 'DB_DATABASE: Check the database name in DATABASE_URL.'
+    if any(s in message for s in ('invalid dsn','invalid uri','invalid percent','missing key','invalid integer','invalid connection option')):
+        return 'DB_FORMAT: Copy the PostgreSQL URI without quotes/placeholders; percent-encode password reserved characters once.'
+    return 'DB_UNKNOWN: Connection rejected; inspect configuration privately without disabling TLS.'
+
+def validate_staging_connection(url):
+    try:parts=conninfo_to_dict(url)
+    except Exception:
+        raise RuntimeError('DB_FORMAT: Invalid DATABASE_URL syntax; check URI encoding privately.') from None
+    if os.getenv('DERMASCAN_POSTGRES_SCHEMA')=='evamcare_staging':
+        host=parts.get('host','')
+        if not host.endswith('.pooler.supabase.com'):
+            raise RuntimeError('DB_ENDPOINT: Staging requires the IPv4-compatible Supabase Session Pooler hostname.')
+        if parts.get('port','5432')!='5432':
+            raise RuntimeError('DB_PORT: Supabase Session Pooler requires port 5432; do not use transaction port 6543.')
+        if parts.get('user')!='postgres.inshzjzlcwklaxpxcpve':
+            raise RuntimeError('DB_USER: Use the EVAMCARE Session Pooler username from Supabase Connect, not the direct postgres username.')
+    return parts
 
 class Row(dict):
     def __getitem__(self,key):
@@ -50,9 +85,12 @@ class Connection:
         options={'sslmode':sslmode,'connect_timeout':10,'prepare_threshold':None,'row_factory':dict_row}
         if sslmode=='verify-full':options['sslrootcert']=os.getenv('PGSSLROOTCERT','system')
         try:
+            validate_staging_connection(url)
             self.raw=pg_connect(url,**options)
-        except Exception:
-            raise RuntimeError('PostgreSQL connection failed. Check secure database configuration.') from None
+        except RuntimeError:
+            raise
+        except Exception as error:
+            raise RuntimeError(connection_diagnostic(error)) from None
         self.raw.execute(sql.SQL('SET search_path TO {}, pg_catalog').format(sql.Identifier(self.schema)))
 
     def execute(self,query,params=()):
