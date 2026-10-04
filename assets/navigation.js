@@ -59,6 +59,8 @@
     document.querySelector('#account-portal').hidden=true;authLinks.hidden=route!='/login';
     document.querySelector('#role-navigation').hidden=auth;
     const heading=shell.querySelector('h1');status('');
+    if(route==='/privacy'){shell.hidden=false;account.hidden=false;document.querySelector('#role-navigation').hidden=true;heading.textContent='Aviso de privacidad';document.querySelector('#privacy-notice').hidden=false;return;}
+    document.querySelector('#privacy-notice').hidden=true;
     entry.textContent=user?'Ir a mi panel':'Iniciar sesión';entry.href=user?'#/panel':'#/login';
     document.querySelector('.topbar [data-start-scan]').hidden=!publicHome;
     if(auth){

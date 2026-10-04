@@ -38,6 +38,14 @@ jobs:
           python -m unittest discover -s tests -p test_accounts.py -v
           python -m unittest discover -s tests -p test_patient_platform.py -v
           python -m unittest discover -s tests -p test_postgres.py -v
+      - name: Exercise PostgreSQL backup and restore on fictional CI data
+        run: |
+          pg_dump "$DATABASE_URL" --schema=evamcare_local_ci --format=custom --file=/tmp/evamcare-ci.dump
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c 'CREATE DATABASE evamcare_restore'
+          pg_restore --no-owner --exit-on-error --dbname="${DATABASE_URL/evamcare_test/evamcare_restore}" /tmp/evamcare-ci.dump
+          source_count=$(psql "$DATABASE_URL" -Atc "SELECT count(*) FROM information_schema.tables WHERE table_schema='evamcare_local_ci'")
+          restore_count=$(psql "${DATABASE_URL/evamcare_test/evamcare_restore}" -Atc "SELECT count(*) FROM information_schema.tables WHERE table_schema='evamcare_local_ci'")
+          test "$source_count" = "$restore_count"
   verify:
     runs-on: ubuntu-latest
     env:

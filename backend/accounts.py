@@ -93,6 +93,7 @@ class Invite(BaseModel):
     name: str = Field(min_length=2,max_length=120)
     roles: list[str] = Field(min_length=1,max_length=4)
     specialty: str | None = Field(default=None,max_length=120)
+    dataset: str = Field(default='test',pattern='^(test|real)$')
 
 class Activate(BaseModel):
     token: str
@@ -172,7 +173,7 @@ def grant(body: Grant,user=Depends(current_user)):
 def grants(user=Depends(current_user)):
     require(user,'patient','professional')
     with connect() as c:
-        return {'items':[dict(r) for r in c.execute('SELECT g.*,p.first_name,p.patient_code,u.name professional_name FROM professional_access_grants g JOIN patients p ON p.id=g.patient_id JOIN user_profiles u ON u.id=g.professional_id WHERE g.patient_id=? OR g.professional_id=?',(user['patient_id'],user['id']))]}
+        return {'items':[dict(r) for r in c.execute('SELECT g.*,p.first_name,p.patient_code,u.name professional_name FROM professional_access_grants g JOIN patients p ON p.id=g.patient_id JOIN user_profiles u ON u.id=g.professional_id WHERE g.patient_id=? OR (g.professional_id=? AND g.revoked_at IS NULL AND g.expires_at>?)',(user['patient_id'],user['id'],now()))]}
 
 @router.post('/grants/{gid}/revoke')
 def revoke(gid: str,user=Depends(current_user)):
@@ -252,6 +253,8 @@ def invite(body: Invite,user=Depends(current_user)):
             pid=str(uuid4())
             c.execute("INSERT INTO patients(id,patient_code,session_id,first_name,email,skin_goals_json,demo,created_at,updated_at) VALUES(?,?,?,?,?,'[]',0,?,?)",(pid,'DS-'+secrets.token_hex(4).upper(),secrets.token_hex(32),body.name,body.email.strip().lower(),now(),now()))
             if 'evaluator' in user['roles']: c.execute('INSERT INTO evaluator_patient_assignments VALUES(?,?)',(user['id'],pid))
+            from .privacy import register_dataset
+            register_dataset(c,pid,body.dataset)
         c.execute('INSERT INTO user_profiles VALUES(?,?,?,?,?,?,?,?,?)',(uid,body.email.strip().lower(),body.name,'pending',None,None,pid,body.specialty,now()))
         for role in set(body.roles): c.execute('INSERT INTO user_roles VALUES(?,?)',(uid,role))
         c.execute('INSERT INTO account_tokens VALUES(?,?,?,?)',(digest(token),uid,'invite',(datetime.now(timezone.utc)+timedelta(hours=48)).isoformat()))

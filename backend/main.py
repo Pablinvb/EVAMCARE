@@ -162,6 +162,8 @@ async def lifespan(_: FastAPI):
     initialize_database()
     initialize_patient_platform()
     initialize_accounts()
+    from .privacy import initialize as initialize_privacy
+    initialize_privacy()
     from .staging_demo import seed
     seed()
     from .database import connect
@@ -191,6 +193,8 @@ app.add_middleware(
 app.include_router(accounts_router)
 app.include_router(recovery_router)
 app.include_router(photos_router)
+from .privacy import router as privacy_router
+app.include_router(privacy_router)
 
 @app.middleware("http")
 async def account_patient_context(request, call_next):
@@ -201,7 +205,7 @@ async def account_patient_context(request, call_next):
             real_patient = connection.execute('SELECT 1 FROM patients WHERE session_id=? AND demo=0',(request.headers.get('x-derma-session'),)).fetchone()
         if real_patient:
             return JSONResponse(status_code=401,content={'detail':'Inicia sesión para acceder a un expediente registrado'})
-    protected = path.startswith("/api/v1/patients/me") or path == "/api/v1/analyze" or path.startswith("/api/v1/shares/")
+    protected = path.startswith("/api/v1/patients/me") or path == "/api/v1/analyze" or path.startswith("/api/v1/shares/") or path.startswith('/api/v1/history')
     if protected and request.headers.get("authorization"):
         try:
             user = current_user(request.headers.get("authorization"))
@@ -332,6 +336,13 @@ async def analyze(
         raise HTTPException(400, "Confirma el consentimiento del paciente antes de evaluar")
     session_id = validate_session(x_derma_session)
     enforce_rate_limit(session_id)
+    if authorization:
+        from .database import connect
+        from .privacy import VERSION
+        from uuid import uuid4
+        with connect() as c:
+            patient=c.execute('SELECT id FROM patients WHERE session_id=?',(session_id,)).fetchone()
+            c.execute('INSERT INTO consents VALUES(?,?,?,?,?,?,?)',(str(uuid4()),patient['id'],'evaluation',1,datetime.now(timezone.utc).isoformat(),None,VERSION))
     decoded = await decode_upload(image)
     result = await run_in_threadpool(analyzer.analyze, decoded)
     referral_token = create_referral_token(result)
