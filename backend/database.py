@@ -1,4 +1,5 @@
 import json
+import os
 import sqlite3
 from contextlib import contextmanager
 from datetime import datetime, timezone
@@ -11,6 +12,8 @@ from .catalog_data import RETAILERS, VERIFIED_AT
 
 
 def initialize_database() -> None:
+    if os.getenv('DERMASCAN_REQUIRE_EXISTING_DATABASE') == '1' and not DATABASE_PATH.is_file():
+        raise RuntimeError('Existing database required. Restore a verified backup before starting.')
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     with connect() as connection:
         connection.execute(

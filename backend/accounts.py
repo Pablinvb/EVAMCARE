@@ -35,7 +35,16 @@ def digest(value):
     return hashlib.sha256(value.encode()).hexdigest()
 
 def password_hash(password, salt):
-    return hashlib.scrypt(password.encode(), salt=bytes.fromhex(salt), n=16384, r=8, p=1).hex()
+    value = hashlib.scrypt(password.encode(), salt=bytes.fromhex(salt), n=32768, r=8, p=1, maxmem=128*1024*1024).hex()
+    return 'scrypt-v2$' + value
+
+def password_matches(password, salt, stored):
+    if stored.startswith('scrypt-v2$'):
+        candidate = password_hash(password, salt)
+    else:
+        # Preserve access for accounts created before versioned hashes.
+        candidate = hashlib.scrypt(password.encode(), salt=bytes.fromhex(salt), n=16384, r=8, p=1).hex()
+    return hmac.compare_digest(candidate, stored)
 
 def initialize_accounts():
     with connect() as c:
@@ -49,10 +58,12 @@ def initialize_accounts():
         ''')
         email = os.getenv("DERMASCAN_BOOTSTRAP_ADMIN_EMAIL")
         password = os.getenv("DERMASCAN_BOOTSTRAP_ADMIN_PASSWORD")
-        if email and password and len(password) >= 12 and not c.execute("SELECT 1 FROM user_profiles").fetchone():
+        c.execute('BEGIN IMMEDIATE')
+        if email and password and 12 <= len(password) <= 256 and not c.execute("SELECT 1 FROM user_profiles").fetchone():
             uid, salt = str(uuid4()), secrets.token_hex(16)
             c.execute("INSERT INTO user_profiles VALUES(?,?,?,?,?,?,?,?,?)", (uid,email.strip().lower(),"Administrador","active",password_hash(password,salt),salt,None,None,now()))
             c.execute("INSERT INTO user_roles VALUES(?, 'admin')", (uid,))
+            audit(c,uid,'ADMIN_BOOTSTRAPPED',uid)
 
 def audit(c, actor, action, resource):
     c.execute("INSERT INTO audit_logs VALUES(?,?,?,?,?,?,?,?)", (str(uuid4()),None,actor,action,"account",resource,now(),"{}"))
@@ -92,7 +103,7 @@ def login(body: Login,request: Request):
     throttle_login(request,body.email)
     with connect() as c:
         u = c.execute("SELECT * FROM user_profiles WHERE email=? AND status='active'",(body.email.strip().lower(),)).fetchone()
-        if not u or not u['salt'] or not hmac.compare_digest(password_hash(body.password,u['salt']),u['password_hash']): raise HTTPException(401,"Credenciales inválidas")
+        if not u or not u['salt'] or not password_matches(body.password,u['salt'],u['password_hash']): raise HTTPException(401,"Credenciales inválidas")
         token = secrets.token_urlsafe(32)
         c.execute("INSERT INTO account_tokens VALUES(?,?,?,?)",(digest(token),u['id'],'session',(datetime.now(timezone.utc)+timedelta(hours=8)).isoformat()))
         return {'token':token}
@@ -165,7 +176,7 @@ def record_session(user,pid):
     with connect() as c:
         patient=c.execute('SELECT * FROM patients WHERE id=? AND demo=0',(pid,)).fetchone()
         if not patient: raise HTTPException(404,'Paciente no encontrado')
-        if user['patient_id']!=pid and not ('evaluator' in user['roles'] and c.execute('SELECT 1 FROM evaluator_patient_assignments WHERE evaluator_id=? AND patient_id=?',(user['id'],pid)).fetchone()): raise HTTPException(403,'Expediente no autorizado')
+        if not (user['patient_id']==pid and 'patient' in user['roles']) and not ('evaluator' in user['roles'] and c.execute('SELECT 1 FROM evaluator_patient_assignments WHERE evaluator_id=? AND patient_id=?',(user['id'],pid)).fetchone()): raise HTTPException(403,'Expediente no autorizado')
         return patient['session_id']
 
 @router.get('/patients/{pid}/record')
@@ -240,6 +251,7 @@ def invite(body: Invite,user=Depends(current_user)):
 @router.post('/activate')
 def activate(body: Activate):
     with connect() as c:
+        c.execute('BEGIN IMMEDIATE')
         token=c.execute("SELECT * FROM account_tokens WHERE hash=? AND kind='invite' AND expires_at>?",(digest(body.token),now())).fetchone()
         if not token: raise HTTPException(400,'Invitación inválida o vencida')
         salt=secrets.token_hex(16)

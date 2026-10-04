@@ -25,7 +25,7 @@
   const action = fn => async e => {e?.preventDefault(); try {await fn(e);} catch(error) {message(error.message);}};
   async function api(path, body, method = 'GET') {
     const response = await fetch(`${base}/api/v1/accounts${path}`, {method, headers:{'Content-Type':'application/json'}, ...(body ? {body:JSON.stringify(body)} : {})});
-    const data = await response.json(); if (!response.ok) throw Error(typeof data.detail === 'string' ? data.detail : 'Revisa los campos de la solicitud'); return data;
+    const data = await response.json(); if (!response.ok) throw Error(data.error?.message || (typeof data.detail === 'string' ? data.detail : 'Revisa los campos de la solicitud')); return data;
   }
   function list(target, items, render) {target.replaceChildren(); items.forEach(item => {const row=document.createElement('div'); row.className='history-card'; render(row,item);target.append(row);});}
   function button(row,text,fn) {const b=document.createElement('button');b.type='button';b.textContent=text;b.onclick=action(fn);row.append(b);}
@@ -47,6 +47,17 @@
   $('#patients-load').onclick=action(async()=>{list($('#patients-list'),(await api('/patients?q='+encodeURIComponent($('#patient-search').value))).items,(row,p)=>{row.textContent=`${p.first_name} · ${p.patient_code} · ${p.scan_count} escaneos · ${p.last_evaluation || 'Sin evaluación'}`;button(row,'Ver expediente',()=>openRecord(p.id));button(row,'Nueva evaluación',async()=>{await api(`/patients/${p.id}/record`);selected=p.id;message(`Evaluación seleccionada: ${p.first_name} (${p.patient_code}). Confirma el consentimiento antes de escanear.`);document.querySelector('#scanner').scrollIntoView({behavior:'smooth'});});});});
   $('#grant-form').onsubmit=action(async e=>{const d=new FormData(e.target);await api('/grants',{professionalId:d.get('professional'),hours:Number(d.get('hours')),scopes:['profile','scans','evolution','recommendations'].filter(s=>d.has(s))},'POST');await grants();message('Acceso autorizado');});
   const nav=document.querySelector('nav');if(nav){const link=document.createElement('a');link.href='#accounts';link.textContent='Mi cuenta';nav.append(link);}
+  const recovery=document.createElement('form');
+  recovery.innerHTML='<h3>Recuperar contraseña</h3><label>Correo <input name="email" type="email" required autocomplete="email"></label><button>Enviar enlace de recuperación</button>';
+  $('#account-login').insertAdjacentElement('afterend',recovery);
+  recovery.onsubmit=action(async e=>{const data=await api('/password-recovery',Object.fromEntries(new FormData(e.target)),'POST');message(data.message);});
+  const reset=document.createElement('form');
+  reset.hidden=true;
+  reset.innerHTML='<h3>Elegir nueva contraseña</h3><label>Nueva contraseña <input name="password" type="password" minlength="12" maxlength="256" required autocomplete="new-password"></label><button>Actualizar contraseña</button>';
+  recovery.insertAdjacentElement('afterend',reset);
+  let resetToken=location.hash.startsWith('#reset=')?location.hash.slice(7):'';
+  if(resetToken){history.replaceState(null,'',location.pathname+location.search+'#accounts');reset.hidden=false;section.scrollIntoView();}
+  reset.onsubmit=action(async e=>{const data=await api('/password-reset',{token:resetToken,password:new FormData(e.target).get('password')},'POST');resetToken='';token='';selected='';sessionStorage.removeItem('evamcare-account');reset.reset();reset.hidden=true;message(data.message);});
   const editForm=document.createElement('form');
   editForm.hidden=true;
   editForm.innerHTML='<h3>Editar cuenta</h3><input name="id" readonly required><input name="name" placeholder="Nombre" required><select name="status"><option>active</option><option>inactive</option><option>pending</option></select><label><input name="admin" type="checkbox">Administrador</label><label><input name="evaluator" type="checkbox">Evaluador</label><label><input name="patient" type="checkbox">Paciente</label><label><input name="professional" type="checkbox">Profesional</label><button>Guardar cambios</button>';

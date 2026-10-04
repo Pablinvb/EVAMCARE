@@ -20,6 +20,7 @@ from pydantic import BaseModel, Field
 
 from .analyzer import SkinAnalyzer
 from .accounts import router as accounts_router, initialize_accounts, current_user, record_session
+from .password_recovery import router as recovery_router
 from .config import (
     ALLOWED_CONTENT_TYPES,
     APP_NAME,
@@ -180,10 +181,17 @@ app.add_middleware(
     allow_headers=["Content-Type", "X-Derma-Session", "X-Partner-Key", "Authorization", "X-Patient-ID"],
 )
 app.include_router(accounts_router)
+app.include_router(recovery_router)
 
 @app.middleware("http")
 async def account_patient_context(request, call_next):
     path = request.url.path
+    if path.startswith('/api/v1/') and not request.headers.get('authorization') and request.headers.get('x-derma-session'):
+        from .database import connect
+        with connect() as connection:
+            real_patient = connection.execute('SELECT 1 FROM patients WHERE session_id=? AND demo=0',(request.headers.get('x-derma-session'),)).fetchone()
+        if real_patient:
+            return JSONResponse(status_code=401,content={'detail':'Inicia sesión para acceder a un expediente registrado'})
     protected = path.startswith("/api/v1/patients/me") or path == "/api/v1/analyze" or path.startswith("/api/v1/shares/")
     if protected and request.headers.get("authorization"):
         try:
@@ -267,7 +275,7 @@ async def validation_error_handler(_, exc: RequestValidationError):
             "error": {
                 "code": 422,
                 "message": "La solicitud no contiene todos los datos requeridos.",
-                "details": exc.errors(),
+                "details": [{"loc": error["loc"], "type": error["type"], "msg": error["msg"]} for error in exc.errors()],
             },
         },
     )

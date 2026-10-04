@@ -51,6 +51,8 @@ class AccountsTests(unittest.TestCase):
             headers={**eh,'X-Patient-ID':pid,'X-Derma-Session':uuid4().hex}
             self.assertEqual(client.get('/api/v1/patients/me',headers=headers).json()['patient']['id'],pid)
             self.assertEqual(client.get('/api/v1/patients/me',headers={**admin,'X-Patient-ID':pid}).status_code,403)
+            with connect() as c: internal_session=c.execute('SELECT session_id FROM patients WHERE id=?',(pid,)).fetchone()[0]
+            self.assertEqual(client.get('/api/v1/patients/me',headers={'X-Derma-Session':internal_session}).status_code,401)
             g=client.post('/api/v1/accounts/grants',headers=ph,json={'professionalId':professional['id'],'scopes':['recommendations'],'hours':1})
             self.assertEqual(g.status_code,201,g.text)
             record=client.get(f'/api/v1/accounts/patients/{pid}/record',headers=dh)

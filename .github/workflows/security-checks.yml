@@ -1,0 +1,33 @@
+name: Security and deployment checks
+on:
+  push:
+    branches: ["codex/security-persistence"]
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    env:
+      DERMASCAN_DATABASE_PATH: /tmp/evamcare-ci.db
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: pip install -r requirements.txt pglast
+      - run: python -m unittest discover -s tests -v
+      - run: node --check app.js && node --check assets/accounts.js
+      - name: Parse prepared PostgreSQL SQL (not a live RLS test)
+        run: python -c "from pathlib import Path; from pglast import parse_sql; [parse_sql(p.read_text()) for p in Path('supabase').rglob('*.sql')]"
+      - name: Verify container build
+        run: docker build -t evamcare-security-check .
+      - name: Verify static bundle
+        run: |
+          mkdir -p /tmp/evamcare-site
+          cp index.html app.js styles.css config.js /tmp/evamcare-site/
+          cp -R assets /tmp/evamcare-site/
+          test -f /tmp/evamcare-site/assets/accounts.js

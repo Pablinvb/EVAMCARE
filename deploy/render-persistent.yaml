@@ -1,0 +1,26 @@
+# Alternative Blueprint only. Do not sync before backing up the live database.
+# This plan/disk has a cost: apply manually after owner approval.
+services:
+  - type: web
+    name: dermascan-ai-api
+    runtime: docker
+    plan: starter
+    healthCheckPath: /api/v1/health
+    autoDeploy: false
+    disk:
+      name: evamcare-data
+      mountPath: /var/data/evamcare
+      sizeGB: 1
+    envVars:
+      - key: DERMASCAN_ENV
+        value: production
+      - key: DERMASCAN_DATABASE_PATH
+        value: /var/data/evamcare/dermascan.db
+      - key: DERMASCAN_REQUIRE_EXISTING_DATABASE
+        value: "1"
+      - key: DERMASCAN_CORS_ORIGINS
+        value: https://pablinvb.github.io
+      - key: DERMASCAN_REFERRAL_TOKEN_SECRET
+        sync: false
+      - key: DERMASCAN_PARTNER_API_KEY
+        sync: false
