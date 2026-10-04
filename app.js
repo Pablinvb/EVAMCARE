@@ -16,6 +16,7 @@
   const cameraStatus = $("#camera-status");
   const IS_LOCAL = ["127.0.0.1", "localhost"].includes(location.hostname);
   const IS_STATIC_DEPLOYMENT = !IS_LOCAL;
+  const SAME_ORIGIN_APP = location.hostname.endsWith('.onrender.com');
   const API_BASE = window.DERMASCAN_API_URL
     || (location.hostname === "pablinvb.github.io"
       ? "https://dermascan-ai-api.onrender.com"
@@ -37,11 +38,14 @@
 
   if (IS_STATIC_DEPLOYMENT) {
     $("#deployment-banner").hidden = false;
-    if (API_BASE) {
-      $("#deployment-banner").textContent =
-        "Aplicación conectada · Escaneo, orientación, catálogos y agenda usan el backend seguro de DermaScan.";
-    }
+    $("#deployment-banner").textContent = "Comprobando conexión segura con el servidor…";
   }
+  async function checkConnection(){
+    const banner=$("#deployment-banner");
+    try{const response=await fetch(`${API_BASE}/api/v1/health`,{signal:AbortSignal.timeout(25000)});if(!response.ok)throw Error();const health=await response.json();if(!health.ok)throw Error();banner.hidden=false;banner.dataset.state='online';banner.textContent=`API disponible · v${health.version} · Evaluación cosmética orientativa. Agenda y catálogo dependen de proveedores configurados.`;}
+    catch{banner.hidden=false;banner.dataset.state='offline';banner.textContent='No se pudo conectar con el servidor. El análisis de demostración no confirma disponibilidad de agenda ni catálogos. ';const retry=document.createElement('button');retry.textContent='Reintentar conexión';retry.onclick=checkConnection;banner.append(retry);}
+  }
+  checkConnection();
 
 
 
@@ -67,7 +71,7 @@
   }
 
   async function loadPatientPlatform() {
-    if (!API_BASE) return renderPlatformOffline();
+    if (!API_BASE && IS_STATIC_DEPLOYMENT && !SAME_ORIGIN_APP) return renderPlatformOffline();
     try {
       const [dashboard, timeline, recommendations, shares] = await Promise.all([
         apiGet("/api/v1/patients/me/dashboard"),

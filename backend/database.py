@@ -1,4 +1,5 @@
 import json
+import os
 import sqlite3
 from contextlib import contextmanager
 from datetime import datetime, timezone
@@ -11,8 +12,12 @@ from .catalog_data import RETAILERS, VERIFIED_AT
 
 
 def initialize_database() -> None:
+    if not os.getenv('DATABASE_URL') and os.getenv('DERMASCAN_REQUIRE_EXISTING_DATABASE') == '1' and not DATABASE_PATH.is_file():
+        raise RuntimeError('Existing database required. Restore a verified backup before starting.')
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     with connect() as connection:
+        if os.getenv('DATABASE_URL'):
+            connection.initialize_schema()
         connection.execute(
             """
             CREATE TABLE IF NOT EXISTS analyses (
@@ -183,6 +188,18 @@ def _ensure_column(
 
 @contextmanager
 def connect() -> Iterator[sqlite3.Connection]:
+    if os.getenv('DATABASE_URL'):
+        from .postgres import Connection
+        connection=Connection(os.environ['DATABASE_URL'])
+        try:
+            yield connection
+            connection.commit()
+        except Exception:
+            connection.rollback()
+            raise
+        finally:
+            connection.close()
+        return
     connection = sqlite3.connect(DATABASE_PATH)
     connection.row_factory = sqlite3.Row
     try:

@@ -1,5 +1,9 @@
 import io
+import os
+import tempfile
 import unittest
+from pathlib import Path
+from unittest.mock import patch
 from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
@@ -27,7 +31,21 @@ def synthetic_image() -> bytes:
 
 
 class ApiTests(unittest.TestCase):
+    def test_pages_authentication_cors(self):
+        response=self.client.options('/api/v1/accounts/login',headers={'Origin':'https://pablinvb.github.io','Access-Control-Request-Method':'POST','Access-Control-Request-Headers':'content-type'})
+        self.assertEqual(response.status_code,200)
+        self.assertEqual(response.headers['access-control-allow-origin'],'https://pablinvb.github.io')
+        response=self.client.options('/api/v1/accounts/login',headers={'Origin':'https://untrusted.example','Access-Control-Request-Method':'POST'})
+        self.assertNotIn('access-control-allow-origin',response.headers)
     def setUp(self) -> None:
+        # SQLite tests must not reuse a developer database containing modified
+        # clinic fixtures. PostgreSQL CI already supplies an isolated database.
+        if not os.getenv('DATABASE_URL'):
+            directory = tempfile.TemporaryDirectory()
+            self.addCleanup(directory.cleanup)
+            database_patch = patch('backend.database.DATABASE_PATH', Path(directory.name) / 'api-test.db')
+            database_patch.start()
+            self.addCleanup(database_patch.stop)
         self.client_context = TestClient(app)
         self.client = self.client_context.__enter__()
         self.session = uuid4().hex

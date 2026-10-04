@@ -1,0 +1,25 @@
+# Configure a verified PostgreSQL secret before applying this release.
+# Existing service and URL are preserved. No paid plan or persistent disk.
+services:
+  - type: web
+    name: dermascan-ai-api
+    runtime: docker
+    plan: free
+    branch: codex/security-persistence
+    healthCheckPath: /api/v1/health
+    autoDeploy: false
+    envVars:
+      - key: DERMASCAN_ENV
+        value: production
+      - key: DATABASE_URL
+        sync: false
+      - key: DERMASCAN_POSTGRES_SCHEMA
+        value: evamcare_local
+      - key: DERMASCAN_POSTGRES_SSLMODE
+        value: verify-full
+      - key: DERMASCAN_CORS_ORIGINS
+        value: https://pablinvb.github.io
+      - key: DERMASCAN_REFERRAL_TOKEN_SECRET
+        sync: false
+      - key: DERMASCAN_PARTNER_API_KEY
+        sync: false

@@ -4,3 +4,4 @@ python-multipart==0.0.32
 opencv-python-headless==4.13.0.92
 numpy>=2.3,<3
 httpx2>=2.13,<3
+psycopg[binary]==3.3.3

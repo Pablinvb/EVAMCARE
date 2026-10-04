@@ -20,6 +20,8 @@ from pydantic import BaseModel, Field
 
 from .analyzer import SkinAnalyzer
 from .accounts import router as accounts_router, initialize_accounts, current_user, record_session
+from .password_recovery import router as recovery_router
+from .private_photos import router as photos_router
 from .config import (
     ALLOWED_CONTENT_TYPES,
     APP_NAME,
@@ -160,6 +162,15 @@ async def lifespan(_: FastAPI):
     initialize_database()
     initialize_patient_platform()
     initialize_accounts()
+    from .privacy import initialize as initialize_privacy
+    initialize_privacy()
+    from .staging_demo import seed
+    seed()
+    from .database import connect
+    import os
+    if os.getenv('DATABASE_URL'):
+        with connect() as connection:
+            connection.secure_tables()
     yield
 
 
@@ -180,11 +191,21 @@ app.add_middleware(
     allow_headers=["Content-Type", "X-Derma-Session", "X-Partner-Key", "Authorization", "X-Patient-ID"],
 )
 app.include_router(accounts_router)
+app.include_router(recovery_router)
+app.include_router(photos_router)
+from .privacy import router as privacy_router
+app.include_router(privacy_router)
 
 @app.middleware("http")
 async def account_patient_context(request, call_next):
     path = request.url.path
-    protected = path.startswith("/api/v1/patients/me") or path == "/api/v1/analyze" or path.startswith("/api/v1/shares/")
+    if path.startswith('/api/v1/') and not request.headers.get('authorization') and request.headers.get('x-derma-session'):
+        from .database import connect
+        with connect() as connection:
+            real_patient = connection.execute('SELECT 1 FROM patients WHERE session_id=? AND demo=0',(request.headers.get('x-derma-session'),)).fetchone()
+        if real_patient:
+            return JSONResponse(status_code=401,content={'detail':'Inicia sesión para acceder a un expediente registrado'})
+    protected = path.startswith("/api/v1/patients/me") or path == "/api/v1/analyze" or path.startswith("/api/v1/shares/") or path.startswith('/api/v1/history')
     if protected and request.headers.get("authorization"):
         try:
             user = current_user(request.headers.get("authorization"))
@@ -267,7 +288,7 @@ async def validation_error_handler(_, exc: RequestValidationError):
             "error": {
                 "code": 422,
                 "message": "La solicitud no contiene todos los datos requeridos.",
-                "details": exc.errors(),
+                "details": [{"loc": error["loc"], "type": error["type"], "msg": error["msg"]} for error in exc.errors()],
             },
         },
     )
@@ -275,6 +296,13 @@ async def validation_error_handler(_, exc: RequestValidationError):
 
 @app.get("/api/v1/health")
 def health() -> dict:
+    import os
+    from .database import connect
+    try:
+        with connect() as connection:
+            connection.execute('SELECT 1').fetchone()
+    except Exception:
+        raise HTTPException(503,'Database unavailable') from None
     return {
         "ok": True,
         "service": APP_NAME,
@@ -283,6 +311,8 @@ def health() -> dict:
         "storesImages": False,
         "clinicalStatus": "research_only",
         "environment": ENVIRONMENT,
+        "database": "postgresql" if os.getenv('DATABASE_URL') else "sqlite",
+        "authProvider": "local",
     }
 
 
@@ -306,6 +336,16 @@ async def analyze(
         raise HTTPException(400, "Confirma el consentimiento del paciente antes de evaluar")
     session_id = validate_session(x_derma_session)
     enforce_rate_limit(session_id)
+    if authorization:
+        from .database import connect
+        from .privacy import VERSION
+        from uuid import uuid4
+        with connect() as c:
+            patient=c.execute('SELECT id FROM patients WHERE session_id=?',(session_id,)).fetchone()
+            dataset=c.execute('SELECT dataset FROM patient_datasets WHERE patient_id=?',(patient['id'],)).fetchone()
+            if dataset and dataset[0]=='real' and not c.execute('SELECT 1 FROM consents WHERE patient_id=? AND consent_type=? AND granted=1 AND revoked_at IS NULL AND version=?',(patient['id'],'evaluation',VERSION)).fetchone():
+                raise HTTPException(403,'El paciente debe aceptar el aviso y consentir desde su propia cuenta antes de la evaluación')
+            c.execute('INSERT INTO consents VALUES(?,?,?,?,?,?,?)',(str(uuid4()),patient['id'],'capture_attestation',1,datetime.now(timezone.utc).isoformat(),None,VERSION))
     decoded = await decode_upload(image)
     result = await run_in_threadpool(analyzer.analyze, decoded)
     referral_token = create_referral_token(result)
