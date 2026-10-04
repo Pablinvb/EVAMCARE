@@ -20,6 +20,10 @@ def connection_diagnostic(error):
         return 'DB_AUTH: Check pooler username, project reference and database password; percent-encode URI password once.'
     if any(s in message for s in ('could not translate host','name or service not known','nodename nor servname','getaddrinfo','name resolution')):
         return 'DB_DNS: Check the Session Pooler hostname copied from Supabase Connect.'
+    if any(s in message for s in ('does not match host','hostname mismatch','certificate name')):
+        return 'DB_TLS_HOST: Use the exact Session Pooler hostname; the certificate does not match the configured hostname.'
+    if any(s in message for s in ('certificate verify failed','self-signed certificate','unable to get local issuer','root certificate file')):
+        return 'DB_TLS_CA: Configure PGSSLROOTCERT with the trusted Supabase CA certificate file; keep verify-full enabled.'
     if any(s in message for s in ('certificate','sslrootcert','ssl error','tls','ssl connection','sslmode','root certificate')):
         return 'DB_TLS: Check Supabase CA certificate and PGSSLROOTCERT; keep verify-full enabled.'
     if any(s in message for s in ('network is unreachable','no route to host')):
