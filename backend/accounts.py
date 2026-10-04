@@ -98,6 +98,16 @@ class Activate(BaseModel):
     token: str
     password: str = Field(min_length=12,max_length=256)
 
+class InvitationCheck(BaseModel):
+    token: str = Field(min_length=20,max_length=256)
+
+@router.post('/invitation-check')
+def invitation_check(body: InvitationCheck):
+    with connect() as c:
+        row=c.execute("SELECT u.name FROM account_tokens t JOIN user_profiles u ON u.id=t.user_id WHERE t.hash=? AND t.kind='invite' AND t.expires_at>? AND u.status='pending'",(digest(body.token),now())).fetchone()
+        if not row: raise HTTPException(400,'Invitación inválida, utilizada o vencida. Solicita una nueva a quien te invitó.')
+        return {'name':row['name']}
+
 @router.post('/login')
 def login(body: Login,request: Request):
     throttle_login(request,body.email)

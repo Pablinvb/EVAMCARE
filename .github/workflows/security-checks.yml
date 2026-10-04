@@ -52,7 +52,7 @@ jobs:
           node-version: "22"
       - run: pip install -r requirements.txt pglast
       - run: python -m unittest discover -s tests -v
-      - run: node --check app.js && node --check assets/accounts.js
+      - run: node --check app.js && node --check assets/accounts.js && node --check assets/navigation.js
       - name: Parse prepared PostgreSQL SQL (not a live RLS test)
         run: python -c "from pathlib import Path; from pglast import parse_sql; [parse_sql(p.read_text()) for p in Path('supabase').rglob('*.sql')]"
       - name: Verify container build
