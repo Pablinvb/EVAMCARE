@@ -9,6 +9,8 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY backend ./backend
+COPY assets ./assets
+COPY migrations ./migrations
 COPY index.html styles.css app.js config.js ./
 
 EXPOSE 8000
