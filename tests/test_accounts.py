@@ -41,8 +41,17 @@ class AccountsTests(unittest.TestCase):
                 check=client.post('/api/v1/accounts/invitation-check',json={'token':data['activationToken']})
                 self.assertEqual(check.status_code,200)
                 self.assertEqual(check.json(),{'name':'Fictional Test'})
+                resend_path='/api/v1/accounts/users/'+data['id']+'/resend-invitation'
+                self.assertEqual(client.post(resend_path).status_code,401)
+                with patch('backend.invitation_email.deliver',return_value={'emailStatus':'failed','message':'Provider unavailable'}):
+                    regenerated=client.post(resend_path,headers=admin)
+                self.assertEqual(regenerated.status_code,200,regenerated.text)
+                self.assertEqual(regenerated.json()['emailStatus'],'failed')
+                self.assertEqual(client.post('/api/v1/accounts/invitation-check',json={'token':data['activationToken']}).status_code,400)
+                data['activationToken']=regenerated.json()['activationToken']
                 activation=client.post('/api/v1/accounts/activate',json={'token':data['activationToken'],'password':'Strong-Test-Password-123'})
                 self.assertEqual(activation.status_code,200,activation.text)
+                self.assertEqual(client.post(resend_path,headers=admin).status_code,409)
                 self.assertEqual(client.post('/api/v1/accounts/invitation-check',json={'token':data['activationToken']}).status_code,400)
                 self.assertEqual(client.post('/api/v1/accounts/activate',json={'token':data['activationToken'],'password':'Strong-Test-Password-123'}).status_code,400)
                 return data,login(address)

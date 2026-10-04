@@ -242,8 +242,9 @@ def users(q: str = '', role: str = '', status: str = '', user=Depends(current_us
         return {'items':result}
 
 @router.post('/invite',status_code=201)
-def invite(body: Invite,user=Depends(current_user)):
+def invite(body: Invite,request: Request,user=Depends(current_user)):
     require(user,'admin','evaluator')
+    throttle_login(request,'invite-create:'+user['id'])
     if not set(body.roles)<=ROLES or ('admin' not in user['roles'] and body.roles!=['patient']): raise HTTPException(403,'Roles no autorizados')
     uid, token = str(uuid4()),secrets.token_urlsafe(32)
     with connect() as c:
@@ -259,7 +260,24 @@ def invite(body: Invite,user=Depends(current_user)):
         for role in set(body.roles): c.execute('INSERT INTO user_roles VALUES(?,?)',(uid,role))
         c.execute('INSERT INTO account_tokens VALUES(?,?,?,?)',(digest(token),uid,'invite',(datetime.now(timezone.utc)+timedelta(hours=48)).isoformat()))
         audit(c,user['id'],'ACCOUNT_INVITED',uid)
-    return {'id':uid,'activationToken':token,'patientId':pid}
+    from .invitation_email import deliver
+    return {'id':uid,'activationToken':token,'patientId':pid,**deliver(body.email.strip().lower(),token)}
+
+@router.post('/users/{uid}/resend-invitation')
+def resend_invitation(uid: str, request: Request, user=Depends(current_user)):
+    require(user,'admin')
+    throttle_login(request,'invitation:'+uid)
+    token=secrets.token_urlsafe(32)
+    with connect() as c:
+        c.execute('BEGIN IMMEDIATE')
+        target=c.execute('SELECT email,status FROM user_profiles WHERE id=?',(uid,)).fetchone()
+        if not target: raise HTTPException(404,'Cuenta no encontrada')
+        if target['status']!='pending': raise HTTPException(409,'Solo se regeneran invitaciones de cuentas pendientes')
+        c.execute("DELETE FROM account_tokens WHERE user_id=? AND kind='invite'",(uid,))
+        c.execute('INSERT INTO account_tokens VALUES(?,?,?,?)',(digest(token),uid,'invite',(datetime.now(timezone.utc)+timedelta(hours=48)).isoformat()))
+        audit(c,user['id'],'INVITATION_REISSUED',uid)
+    from .invitation_email import deliver
+    return {'id':uid,'activationToken':token,**deliver(target['email'],token)}
 
 @router.post('/activate')
 def activate(body: Activate):
