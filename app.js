@@ -181,6 +181,7 @@
 
 
   loadPatientPlatform();
+  window.addEventListener('evamcare-patient-context', loadPatientPlatform);
 
   const spatialButton = $("#open-spatial-mode");
   if (spatialButton) {
@@ -595,6 +596,7 @@
     const form = new FormData();
     form.append("image", blob, "dermascan-capture.jpg");
     form.append("save_history", $("#save-history").checked ? "true" : "false");
+    form.append("patient_consent", document.querySelector('#patient-account-consent')?.checked ? "true" : "false");
     form.append("capture_source", sourceMode === "upload" ? "upload" : "webcam");
     let response;
     try {

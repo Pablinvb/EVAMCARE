@@ -19,6 +19,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
 
 from .analyzer import SkinAnalyzer
+from .accounts import router as accounts_router, initialize_accounts, current_user, record_session
 from .config import (
     ALLOWED_CONTENT_TYPES,
     APP_NAME,
@@ -158,6 +159,7 @@ class ShareRecordRequest(BaseModel):
 async def lifespan(_: FastAPI):
     initialize_database()
     initialize_patient_platform()
+    initialize_accounts()
     yield
 
 
@@ -175,8 +177,27 @@ app.add_middleware(
     allow_origins=CORS_ORIGINS,
     allow_credentials=False,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
-    allow_headers=["Content-Type", "X-Derma-Session", "X-Partner-Key"],
+    allow_headers=["Content-Type", "X-Derma-Session", "X-Partner-Key", "Authorization", "X-Patient-ID"],
 )
+app.include_router(accounts_router)
+
+@app.middleware("http")
+async def account_patient_context(request, call_next):
+    path = request.url.path
+    protected = path.startswith("/api/v1/patients/me") or path == "/api/v1/analyze" or path.startswith("/api/v1/shares/")
+    if protected and request.headers.get("authorization"):
+        try:
+            user = current_user(request.headers.get("authorization"))
+            pid = request.headers.get("x-patient-id") or user['patient_id']
+            if not pid:
+                raise HTTPException(400, "Selecciona un paciente autorizado")
+            session = record_session(user, pid)
+            headers = [(k,v) for k,v in request.scope['headers'] if k.lower()!=b'x-derma-session']
+            headers.append((b'x-derma-session',session.encode()))
+            request.scope['headers'] = headers
+        except HTTPException as exc:
+            return JSONResponse(status_code=exc.status_code,content={'detail':exc.detail})
+    return await call_next(request)
 
 
 def validate_session(session_id: str | None) -> str:
@@ -274,11 +295,15 @@ def clinical_status() -> dict:
 async def analyze(
     image: Annotated[UploadFile, File(description="Fotografía facial JPEG, PNG o WebP")],
     save_history: Annotated[bool, Form()] = False,
+    patient_consent: Annotated[bool, Form()] = False,
     capture_source: Annotated[
         Literal["webcam", "iphone", "upload", "vision_pro"], Form()
     ] = "webcam",
     x_derma_session: Annotated[str | None, Header()] = None,
+    authorization: Annotated[str | None, Header()] = None,
 ) -> dict:
+    if authorization and not patient_consent:
+        raise HTTPException(400, "Confirma el consentimiento del paciente antes de evaluar")
     session_id = validate_session(x_derma_session)
     enforce_rate_limit(session_id)
     decoded = await decode_upload(image)
