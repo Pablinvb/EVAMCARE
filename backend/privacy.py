@@ -35,12 +35,15 @@ class Consent(BaseModel):
     purpose: str=Field(pattern='^(evaluation|photo_storage)$')
     granted: bool
     version: str
+    adult: bool=False
 
 @router.post('/consent')
 def consent(body: Consent,user=Depends(current_user)):
     require(user,'patient')
     if not user['patient_id'] or body.version!=VERSION:raise HTTPException(400,'Revisa la versión actual del aviso')
     with connect() as c:
+        dataset=c.execute('SELECT dataset FROM patient_datasets WHERE patient_id=?',(user['patient_id'],)).fetchone()
+        if body.purpose=='evaluation' and body.granted and dataset and dataset[0]=='real' and not body.adult:raise HTTPException(400,'El piloto requiere declaración de mayoría de edad')
         c.execute('UPDATE consents SET revoked_at=? WHERE patient_id=? AND consent_type=? AND revoked_at IS NULL',(now(),user['patient_id'],body.purpose))
         c.execute('INSERT INTO consents VALUES(?,?,?,?,?,?,?)',(str(uuid4()),user['patient_id'],body.purpose,int(body.granted),now() if body.granted else None,None,VERSION))
     return {'ok':True}

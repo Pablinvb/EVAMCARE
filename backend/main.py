@@ -342,7 +342,10 @@ async def analyze(
         from uuid import uuid4
         with connect() as c:
             patient=c.execute('SELECT id FROM patients WHERE session_id=?',(session_id,)).fetchone()
-            c.execute('INSERT INTO consents VALUES(?,?,?,?,?,?,?)',(str(uuid4()),patient['id'],'evaluation',1,datetime.now(timezone.utc).isoformat(),None,VERSION))
+            dataset=c.execute('SELECT dataset FROM patient_datasets WHERE patient_id=?',(patient['id'],)).fetchone()
+            if dataset and dataset[0]=='real' and not c.execute('SELECT 1 FROM consents WHERE patient_id=? AND consent_type=? AND granted=1 AND revoked_at IS NULL AND version=?',(patient['id'],'evaluation',VERSION)).fetchone():
+                raise HTTPException(403,'El paciente debe aceptar el aviso y consentir desde su propia cuenta antes de la evaluación')
+            c.execute('INSERT INTO consents VALUES(?,?,?,?,?,?,?)',(str(uuid4()),patient['id'],'capture_attestation',1,datetime.now(timezone.utc).isoformat(),None,VERSION))
     decoded = await decode_upload(image)
     result = await run_in_threadpool(analyzer.analyze, decoded)
     referral_token = create_referral_token(result)
