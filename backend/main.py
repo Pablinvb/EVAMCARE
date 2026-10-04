@@ -161,6 +161,11 @@ async def lifespan(_: FastAPI):
     initialize_database()
     initialize_patient_platform()
     initialize_accounts()
+    from .database import connect
+    import os
+    if os.getenv('DATABASE_URL'):
+        with connect() as connection:
+            connection.secure_tables()
     yield
 
 
@@ -283,6 +288,13 @@ async def validation_error_handler(_, exc: RequestValidationError):
 
 @app.get("/api/v1/health")
 def health() -> dict:
+    import os
+    from .database import connect
+    try:
+        with connect() as connection:
+            connection.execute('SELECT 1').fetchone()
+    except Exception:
+        raise HTTPException(503,'Database unavailable') from None
     return {
         "ok": True,
         "service": APP_NAME,
@@ -291,6 +303,8 @@ def health() -> dict:
         "storesImages": False,
         "clinicalStatus": "research_only",
         "environment": ENVIRONMENT,
+        "database": "postgresql" if os.getenv('DATABASE_URL') else "sqlite",
+        "authProvider": "local",
     }
 
 
