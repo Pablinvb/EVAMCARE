@@ -9,7 +9,7 @@ from .database import connect
 
 def seed():
     if os.getenv('DERMASCAN_STAGING_DEMO')!='true':return
-    if os.getenv('DERMASCAN_POSTGRES_SCHEMA')!='evamcare_staging' or not os.getenv('DATABASE_URL'):
+    if os.getenv('DERMASCAN_POSTGRES_SCHEMA') not in ('evamcare_staging', 'evamcare_neon') or not os.getenv('DATABASE_URL'):
         raise RuntimeError('Demo provisioning is restricted to isolated PostgreSQL staging.')
     roles=('evaluator','patient','professional')
     passwords={role:os.getenv('DERMASCAN_DEMO_'+role.upper()+'_PASSWORD','') for role in roles}
@@ -29,6 +29,8 @@ def seed():
             if role=='patient':
                 pid=patient_id=str(uuid4())
                 c.execute("INSERT INTO patients(id,patient_code,session_id,first_name,email,skin_goals_json,demo,created_at,updated_at) VALUES(?,?,?,?,?,'[]',0,?,?)",(pid,'DS-'+secrets.token_hex(4).upper(),secrets.token_hex(32),'Paciente ficticio de staging',email,now(),now()))
+                from .privacy import register_dataset
+                register_dataset(c,pid,'test')
             salt=secrets.token_hex(16)
             c.execute('INSERT INTO user_profiles VALUES(?,?,?,?,?,?,?,?,?)',(uid,email,'Demo '+role,'active',password_hash(passwords[role],salt),salt,pid,'Dermatología (demo)' if role=='professional' else None,now()))
             c.execute('INSERT INTO user_roles VALUES(?,?)',(uid,role))

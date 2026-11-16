@@ -17,7 +17,7 @@ def initialize():
 
 def register_dataset(c,pid,dataset):
     if dataset=='real':
-        if os.getenv('DERMASCAN_POSTGRES_SCHEMA')=='evamcare_staging' or os.getenv('DERMASCAN_REAL_PATIENTS_ENABLED')!='true':raise HTTPException(403,'Este entorno admite únicamente pacientes ficticios')
+        if os.getenv('DERMASCAN_POSTGRES_SCHEMA') in ('evamcare_staging', 'evamcare_neon') or os.getenv('DERMASCAN_REAL_PATIENTS_ENABLED')!='true':raise HTTPException(403,'Este entorno admite únicamente pacientes ficticios')
         if not all(os.getenv(k) for k in ('DERMASCAN_PRIVACY_CONTROLLER','DERMASCAN_PRIVACY_CONTACT','DERMASCAN_RETENTION_POLICY')):raise HTTPException(503,'Configura responsable, contacto de privacidad y conservación antes del piloto real')
     c.execute('INSERT INTO patient_datasets VALUES(?,?)',(pid,dataset))
 

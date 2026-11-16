@@ -5,8 +5,12 @@ __pycache__/
 venv/
 data/
 .env
+.env.local
+dist/
 exports/
 backups/
 *.db
 *.db-wal
 *.db-shm
+.neon
+node_modules/

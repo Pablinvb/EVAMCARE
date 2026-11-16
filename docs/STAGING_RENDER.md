@@ -32,3 +32,19 @@ After first successful administrator login: set DERMASCAN_BOOTSTRAP_COMPLETE=tru
 ## Verification status
 
 Service created; database connection and real staging authentication are pending secret entry. Until then startup deliberately fails closed rather than falling back to SQLite. Existing Supabase Auth RLS suite was rerun successfully with rollback. CI and local fixture tests do not replace real staging login and browser journeys. Production publication requires separate owner approval.
+## Neon PostgreSQL (optional staging switch)
+
+Keep the Render build and start commands: `pip install -r requirements.txt`
+and `python -m backend.staging_start`. In Render **staging only**, add
+`NEON_DATABASE_URL` using the direct value of `DATABASE_URL_UNPOOLED` from
+the verified Neon project. Keep the old `DATABASE_URL` and Supabase CA file
+so removing the Neon override and redeploying restores the previous connection.
+The startup command uses `evamcare_neon`, forces `verify-full` with a bundled
+CA trust store, and keeps real patients disabled. It does not copy existing
+accounts or sessions. Optional Supabase photo storage is independent.
+
+For a fresh Neon schema, set the bootstrap administrator email and a private
+password (12–256 characters) in staging. Do not enable demo provisioning
+until the first administrator exists. Clear the bootstrap secrets once login
+has been verified. To seed the remaining fictional roles, follow the demo
+configuration above, using fresh staging-only credentials.

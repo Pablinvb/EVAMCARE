@@ -1,0 +1,12 @@
+{
+  "private": true,
+  "scripts": {
+    "start": "npm run start:neon",
+    "build": "node --check app.js && node --check assets/accounts.js && node --check assets/navigation.js && node scripts/build.mjs",
+    "start:neon": "node --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/start-neon.mjs"
+  },
+  "dependencies": {
+    "@neon/config": "^1.14.1",
+    "@neon/env": "^2.1.4"
+  }
+}

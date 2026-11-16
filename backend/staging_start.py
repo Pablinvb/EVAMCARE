@@ -1,8 +1,39 @@
 """Fail-closed Render staging entrypoint; never prints configuration values."""
 import os
 import sys
+from urllib.parse import urlsplit
+
+
+def configure_neon():
+    url = os.getenv('NEON_DATABASE_URL')
+    if not url:
+        return False
+    try:
+        endpoint = urlsplit(url)
+        host = endpoint.hostname or ''
+        valid = (endpoint.scheme in ('postgresql', 'postgres') and
+                 host.endswith('.neon.tech') and '-pooler.' not in host and
+                 endpoint.port in (None, 5432))
+    except ValueError:
+        valid = False
+    if not valid:
+        raise ValueError('NEON_DATABASE_URL must be a direct Neon PostgreSQL connection.')
+    import certifi
+    os.environ.update(
+        DATABASE_URL=url,
+        DERMASCAN_POSTGRES_SCHEMA='evamcare_neon',
+        DERMASCAN_POSTGRES_SSLMODE='verify-full',
+        PGSSLROOTCERT=certifi.where(),
+    )
+    return True
 
 def main():
+    try:
+        neon = configure_neon()
+    except ValueError as error:
+        print(str(error), file=sys.stderr)
+        return 1
+    os.environ['DERMASCAN_REAL_PATIENTS_ENABLED'] = 'false'
     required=('DATABASE_URL','DERMASCAN_BOOTSTRAP_ADMIN_EMAIL',
               'DERMASCAN_BOOTSTRAP_ADMIN_PASSWORD','DERMASCAN_REFERRAL_TOKEN_SECRET',
               'DERMASCAN_PARTNER_API_KEY')
@@ -13,7 +44,7 @@ def main():
     if missing:
         print('Staging configuration required: '+', '.join(missing),file=sys.stderr)
         return 1
-    if os.getenv('DERMASCAN_POSTGRES_SCHEMA')!='evamcare_staging':
+    if os.getenv('DERMASCAN_POSTGRES_SCHEMA') != ('evamcare_neon' if neon else 'evamcare_staging'):
         print('Staging requires its isolated evamcare_staging schema.',file=sys.stderr)
         return 1
     if os.getenv('DERMASCAN_POSTGRES_SSLMODE','verify-full')!='verify-full':
