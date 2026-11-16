@@ -532,7 +532,7 @@
     else if (hydrationNeed > 58) skinType = "Seca";
     else if (oilSignal > 38) skinType = "Mixta";
 
-    return { metrics, overall, skinType, confidence, needs: { hydrationNeed, oilSignal, textureNeed, poreNeed, acneNeed, rednessNeed, pigmentationNeed, lineNeed } };
+    return { metrics, overall, skinType, confidence, quality, needs: { hydrationNeed, oilSignal, textureNeed, poreNeed, acneNeed, rednessNeed, pigmentationNeed, lineNeed } };
   }
 
   function metric(name, icon, score, description, need) {
@@ -544,7 +544,8 @@
   }
 
   analyzeButton.addEventListener("click", async () => {
-    if (!imageReady) return;
+    if (!imageReady || analyzeButton.disabled) return;
+    analyzeButton.disabled = true;
     try {
       drawSourceToCanvas();
       const imageUrl = captureCanvas.toDataURL("image/jpeg", .91);
@@ -552,21 +553,10 @@
       $("#result-image").src = imageUrl;
       stopCamera();
       showStage("processing");
-      const analysisRequest = requestAnalysis(captureCanvas);
-      const phases = [
-        [12, "Validando iluminación y nitidez"],
-        [28, "Detectando el rostro"],
-        [47, "Evaluando textura y poros"],
-        [66, "Analizando tono e imperfecciones"],
-        [83, "Estimando hidratación y líneas visibles"],
-      ];
-      for (const [progress, label] of phases) {
-        await wait(280);
-        $("#progress-bar").style.width = `${progress}%`;
-        $("#progress-value").textContent = `${progress}%`;
-        $("#processing-label").textContent = label;
-      }
-      const payload = await analysisRequest;
+      $("#progress-bar").style.width = "0%";
+      $("#progress-value").textContent = "En proceso";
+      $("#processing-label").textContent = "Esperando respuesta del servidor. Puede tardar hasta 60 segundos.";
+      const payload = await requestAnalysis(captureCanvas);
       $("#progress-bar").style.width = "100%";
       $("#progress-value").textContent = "100%";
       $("#processing-label").textContent = "Preparando tus resultados";
@@ -580,6 +570,8 @@
     } catch (error) {
       showStage("capture");
       cameraStatus.textContent = error.message || "No pudimos procesar la imagen.";
+    } finally {
+      analyzeButton.disabled = !imageReady;
     }
   });
 
@@ -602,24 +594,26 @@
     form.append("save_history", $("#save-history").checked ? "true" : "false");
     form.append("patient_consent", document.querySelector('#patient-account-consent')?.checked ? "true" : "false");
     form.append("capture_source", sourceMode === "upload" ? "upload" : "webcam");
-    let response;
+    const signal = AbortSignal.timeout(60000);
     try {
-      response = await fetch(`${API_BASE}/api/v1/analyze`, {
+      const response = await fetch(`${API_BASE}/api/v1/analyze`, {
         method: "POST",
         headers: { "X-Derma-Session": sessionId },
         body: form,
+        signal,
       });
-    } catch {
-      return localFallbackAnalysis(canvas);
-    }
-    const payload = await response.json().catch(() => null);
-    if (!response.ok) {
-      if (IS_STATIC_DEPLOYMENT && [404, 405].includes(response.status)) {
-        return localFallbackAnalysis(canvas);
+      const payload = await response.json().catch(() => null);
+      signal.throwIfAborted();
+      if (!response.ok) {
+        throw new Error(payload?.error?.message || (typeof payload?.detail === "string" ? payload.detail : "El servidor no pudo completar el análisis. Intenta de nuevo."));
       }
-      throw new Error(payload?.error?.message || "El backend rechazó la imagen.");
+      if (!Array.isArray(payload?.result?.metrics)) throw new Error("El servidor no devolvió un resultado válido. Intenta de nuevo.");
+      return payload;
+    } catch (error) {
+      if (signal.aborted) throw new Error("El servidor tardó demasiado. Revisa tu historial antes de reintentar si solicitaste guardar el escaneo.");
+      if (error instanceof TypeError) throw new Error("No se pudo conectar con el servidor. Revisa tu conexión e intenta de nuevo.");
+      throw error;
     }
-    return payload;
   }
 
   function localFallbackAnalysis(canvas) {
@@ -642,6 +636,24 @@
     };
   }
 
+  function captureQualityTips({quality = {}, face} = {}) {
+    const checks = [
+      ['light', 'Iluminación: ponte de frente a una ventana con luz indirecta. Evita contraluz, flash y sombras marcadas.'],
+      ['contrast', 'Contraste: evita filtros y luces de colores. Busca luz neutra y uniforme.'],
+      ['sharpness', 'Nitidez: limpia la lente, mantén el dispositivo quieto y espera a que el rostro esté enfocado.'],
+      ['framing', 'Encuadre: centra el rostro a la altura de la cámara, con la frente y el mentón visibles.'],
+    ].filter(([key]) => Number.isFinite(quality[key]));
+    checks.sort(([a], [b]) => quality[a] - quality[b]);
+    const tips = [];
+    if (face?.detected === false) tips.push('No se detectó un rostro frontal. Mira a la cámara, despeja el rostro y repite la foto.');
+    if (face?.count > 1) tips.push('Debe aparecer una sola persona. Vuelve a tomar la foto sin otros rostros en el encuadre.');
+    tips.push(...checks.filter(([key]) => quality[key] < 85).slice(0, 3).map(([, tip]) => tip));
+    if (!tips.length) tips.push(checks.length
+      ? 'Buena calidad de captura. Para comparar resultados, repite con iluminación, distancia y posición similares.'
+      : 'Para repetir, usa luz uniforme, centra el rostro y mantén la cámara quieta.');
+    return tips;
+  }
+
   function renderResults(result) {
     $("#overall-score").textContent = result.overall;
     $("#score-ring").style.setProperty("--score", result.overall);
@@ -650,7 +662,14 @@
     $("#score-summary").textContent = summaryFor(result);
     $("#skin-type").textContent = result.skinType;
     $("#skin-type-copy").textContent = skinTypeCopy(result.skinType);
-    $("#confidence-value").textContent = `${Math.round(result.confidence)}%`;
+    $("#confidence-value").textContent = Number.isFinite(result.confidence) ? `${Math.round(result.confidence)}/100` : "No disponible";
+    const tips = $("#capture-quality-tips");
+    tips.replaceChildren();
+    for (const tip of captureQualityTips(result)) {
+      const item = document.createElement("li");
+      item.textContent = tip;
+      tips.append(item);
+    }
     $("#analysis-warnings").textContent = result.warnings?.length
       ? `Observaciones de captura: ${result.warnings.join(" ")}`
       : "";
